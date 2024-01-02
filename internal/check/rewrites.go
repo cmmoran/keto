@@ -346,17 +346,19 @@ func (e *Engine) checkTupleToSubjectSet(
 				}
 				for _, child := range subjectSet.Children {
 					if childTupleToSubjectSet, ok := child.(*ast.TupleToSubjectSet); ok {
-						ns := childTupleToSubjectSet.Namespace
-						if childTupleToSubjectSet.Namespace == "" {
-							ns = tuple.Namespace
+						nss := childTupleToSubjectSet.Namespaces
+						if len(childTupleToSubjectSet.Namespaces) == 0 {
+							nss = []string{tuple.Namespace}
 						}
-						childRelationTuple := &relationTuple{
-							Namespace: ns,
-							Object:    qObj,
-							Relation:  childTupleToSubjectSet.Relation,
-							Subject:   tuple.Subject,
+						for _, ns := range nss {
+							childRelationTuple := &relationTuple{
+								Namespace: ns,
+								Object:    qObj,
+								Relation:  childTupleToSubjectSet.Relation,
+								Subject:   tuple.Subject,
+							}
+							g.Add(e.checkTupleToSubjectSet(childRelationTuple, childTupleToSubjectSet, restDepth-1))
 						}
-						g.Add(e.checkTupleToSubjectSet(childRelationTuple, childTupleToSubjectSet, restDepth-1))
 					}
 				}
 			}
