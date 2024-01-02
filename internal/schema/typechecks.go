@@ -3,10 +3,14 @@
 
 package schema
 
-import "github.com/ory/keto/internal/namespace/ast"
+import (
+	"fmt"
+	"github.com/ory/keto/internal/namespace/ast"
+)
 
 type (
 	namespaceQuery []namespace
+	typeQuery      []ast.RelationType
 	relationQuery  []ast.Relation
 	typeCheck      func(p *parser)
 )
@@ -93,6 +97,47 @@ func checkCurrentNamespaceHasRelation(current *namespace, relation item) typeChe
 			return
 		}
 		p.addErr(relation, "namespace %q was not declared", namespace)
+	}
+}
+
+// checkArbitraryNamespaceHasRelation checks that the given relation exists in the
+// given namespaces.
+func checkArbitraryNamespaceHasRelation(namespace *namespace, relationTypes typeQuery, relation item) typeCheck {
+	if relationTypes == nil {
+		relationTypes = []ast.RelationType{{
+			Namespace: namespace.Name,
+			Relation:  "",
+		}}
+	}
+	return func(p *parser) {
+		for _, ns := range relationTypes {
+			if n, ok := namespaceQuery(p.namespaces).find(ns.Namespace); ok {
+				if _, ok := relationQuery(n.Relations).find(relation.Val); ok {
+					return
+				}
+				p.addErr(relation,
+					"namespace %q did not declare relation %q",
+					ns.Namespace, relation.Val)
+				return
+			}
+			p.addErr(relation, "namespace %q was not declared", ns.Namespace)
+		}
+	}
+}
+
+func checkArbitraryRelationsTypesHaveRelation(namespace *namespace, relationTypes typeQuery, relationType item, relation string) typeCheck {
+	if relationTypes == nil {
+		relationTypes = []ast.RelationType{{
+			Namespace: namespace.Name,
+			Relation:  "",
+		}}
+	}
+	return func(p *parser) {
+
+		for _, ns := range relationTypes {
+			fmt.Printf("checking %s %s %s\n", ns.Namespace, relationType.Val, relation)
+			recursiveCheckAllRelationsTypesHaveRelation(p, relationType, ns.Namespace, relationType.Val, relation, tupleToSubjectSetTypeCheckMaxDepth)
+		}
 	}
 }
 

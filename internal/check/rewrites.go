@@ -5,6 +5,7 @@ package check
 
 import (
 	"context"
+	"github.com/gofrs/uuid"
 
 	"github.com/pkg/errors"
 
@@ -122,6 +123,7 @@ func (e *Engine) checkSubjectSetRewrite(
 				Tuple: *tuple,
 				Type:  ketoapi.TreeNodeNot,
 			}, e.checkInverted(ctx, tuple, c, restDepth)))
+
 		case *ast.SubjectEqualsObject:
 			checks = append(checks, checkgroup.WithEdge(checkgroup.Edge{
 				Tuple: *tuple,
@@ -330,17 +332,36 @@ func (e *Engine) checkTupleToSubjectSet(
 			}
 
 			for _, t := range tuples {
+				var qObj uuid.UUID
 				if subSet, ok := t.Subject.(*relationtuple.SubjectSet); ok {
+					qObj = subSet.Object
 					g.Add(e.checkIsAllowed(ctx, &relationTuple{
 						Namespace: subSet.Namespace,
 						Object:    subSet.Object,
 						Relation:  subjectSet.ComputedSubjectSetRelation,
 						Subject:   tuple.Subject,
 					}, restDepth-1, false))
-
+				} else {
+					qObj = t.Subject.UniqueID()
+				}
+				for _, child := range subjectSet.Children {
+					if childTupleToSubjectSet, ok := child.(*ast.TupleToSubjectSet); ok {
+						ns := childTupleToSubjectSet.Namespace
+						if childTupleToSubjectSet.Namespace == "" {
+							ns = tuple.Namespace
+						}
+						childRelationTuple := &relationTuple{
+							Namespace: ns,
+							Object:    qObj,
+							Relation:  childTupleToSubjectSet.Relation,
+							Subject:   tuple.Subject,
+						}
+						g.Add(e.checkTupleToSubjectSet(childRelationTuple, childTupleToSubjectSet, restDepth-1))
+					}
 				}
 			}
 		}
+
 		resultCh <- g.Result()
 	}
 }

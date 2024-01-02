@@ -66,6 +66,7 @@ func (t *Traverser) TraverseSubjectSetExpansion(ctx context.Context, start *rela
 			rows  []*subjectExpandedRelationTupleRow
 			limit = 1000
 		)
+		//goland:noinspection SqlType
 		err = t.conn.WithContext(ctx).RawQuery(fmt.Sprintf(`
 SELECT current.shard_id AS shard_id,
        current.subject_set_namespace AS namespace,

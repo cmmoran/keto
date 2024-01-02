@@ -38,8 +38,10 @@ type (
 	}
 
 	TupleToSubjectSet struct {
-		Relation                   string `json:"relation"`
-		ComputedSubjectSetRelation string `json:"computed_subject_set_relation"`
+		Namespace                  string   `json:"namespace"`
+		Relation                   string   `json:"relation"`
+		ComputedSubjectSetRelation string   `json:"computed_subject_set_relation"`
+		Children                   Children `json:"children,omitempty"`
 	}
 
 	// InvertResult inverts the check result of the child.
