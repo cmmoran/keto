@@ -38,7 +38,7 @@ type (
 	}
 
 	TupleToSubjectSet struct {
-		Namespace                  string   `json:"namespace"`
+		Namespaces                 []string `json:"namespaces"`
 		Relation                   string   `json:"relation"`
 		ComputedSubjectSetRelation string   `json:"computed_subject_set_relation"`
 		Children                   Children `json:"children,omitempty"`

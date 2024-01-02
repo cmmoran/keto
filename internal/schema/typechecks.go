@@ -15,6 +15,15 @@ type (
 	typeCheck      func(p *parser)
 )
 
+func (tq typeQuery) namespaces() []string {
+	res := make([]string, 0)
+	for _, t := range tq {
+		res = append(res, t.Namespace)
+	}
+
+	return res
+}
+
 func (p *parser) query() namespaceQuery {
 	return p.namespaces
 }

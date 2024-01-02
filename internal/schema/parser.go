@@ -555,24 +555,15 @@ func (p *parser) parseTupleToSubjectSet(relation item) (rewrite ast.Child) {
 		case "traverse":
 			p.push(relation)
 			child := p.parseTupleToSubjectSet(name).(*ast.TupleToSubjectSet)
-
-			children := ast.Children{}
-			current := p.peekCurrent()
-			for _, childNs := range current {
-				children = append(children, &ast.TupleToSubjectSet{
-					Namespace:                  childNs.Namespace,
-					Relation:                   child.Relation,
-					ComputedSubjectSetRelation: child.ComputedSubjectSetRelation,
-					Children:                   child.Children,
-				})
-			}
 			p.pop()
-			current = p.peekCurrent()
+			current := p.peekCurrent()
+			namespaces := typeQuery(current).namespaces()
+			//Remap current to associated namespace
 			rewrite = &ast.TupleToSubjectSet{
-				Namespace:                  current[0].Namespace,
+				Namespaces:                 namespaces,
 				Relation:                   relation.Val,
 				ComputedSubjectSetRelation: name.Val,
-				Children:                   children,
+				Children:                   ast.Children{child},
 			}
 
 			return rewrite
@@ -587,7 +578,9 @@ func (p *parser) parseTupleToSubjectSet(relation item) (rewrite ast.Child) {
 				&p.namespace, current, relation, name.Val,
 			))
 			p.addCheck(checkArbitraryNamespaceHasRelation(&p.namespace, current, relation))
+			namespaces := typeQuery(current).namespaces()
 			rewrite = &ast.TupleToSubjectSet{
+				Namespaces:                 namespaces,
 				Relation:                   relation.Val,
 				ComputedSubjectSetRelation: name.Val,
 			}
@@ -605,7 +598,9 @@ func (p *parser) parseTupleToSubjectSet(relation item) (rewrite ast.Child) {
 			&p.namespace, current, relation, name.Val,
 		))
 		p.addCheck(checkArbitraryNamespaceHasRelation(&p.namespace, current, relation))
+		namespaces := typeQuery(current).namespaces()
 		rewrite = &ast.TupleToSubjectSet{
+			Namespaces:                 namespaces,
 			Relation:                   relation.Val,
 			ComputedSubjectSetRelation: name.Val,
 		}
