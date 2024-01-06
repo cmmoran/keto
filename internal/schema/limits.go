@@ -11,4 +11,8 @@ const (
 	// expressionNestingMaxDepth is the maximum number of nested '(' and '!' in
 	// a single 'permits'.
 	expressionNestingMaxDepth = 10
+
+	// tupleToSubjectSetTraversalMaxDepth controls the maximum depth of relation.traverse
+	// calls within a single namespace
+	tupleToSubjectSetTraversalMaxDepth = 10
 )
