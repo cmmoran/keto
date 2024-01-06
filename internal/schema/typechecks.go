@@ -4,7 +4,6 @@
 package schema
 
 import (
-	"fmt"
 	"github.com/ory/keto/internal/namespace/ast"
 )
 
@@ -111,41 +110,37 @@ func checkCurrentNamespaceHasRelation(current *namespace, relation item) typeChe
 
 // checkArbitraryNamespaceHasRelation checks that the given relation exists in the
 // given namespaces.
-func checkArbitraryNamespaceHasRelation(namespace *namespace, relationTypes typeQuery, relation item) typeCheck {
-	if relationTypes == nil {
-		relationTypes = []ast.RelationType{{
-			Namespace: namespace.Name,
-			Relation:  "",
-		}}
+func checkNamespacesHasRelationTypesRelations(namespace *namespace, namespaces []string, relation item) typeCheck {
+	if len(namespaces) == 0 {
+		namespaces = []string{
+			namespace.Name,
+		}
 	}
 	return func(p *parser) {
-		for _, ns := range relationTypes {
-			if n, ok := namespaceQuery(p.namespaces).find(ns.Namespace); ok {
+		for _, ns := range namespaces {
+			if n, ok := namespaceQuery(p.namespaces).find(ns); ok {
 				if _, ok := relationQuery(n.Relations).find(relation.Val); ok {
 					return
 				}
 				p.addErr(relation,
 					"namespace %q did not declare relation %q",
-					ns.Namespace, relation.Val)
+					ns, relation.Val)
 				return
 			}
-			p.addErr(relation, "namespace %q was not declared", ns.Namespace)
+			p.addErr(relation, "namespace %q was not declared", ns)
 		}
 	}
 }
 
-func checkArbitraryRelationsTypesHaveRelation(namespace *namespace, relationTypes typeQuery, relationType item, relation string) typeCheck {
-	if relationTypes == nil {
-		relationTypes = []ast.RelationType{{
-			Namespace: namespace.Name,
-			Relation:  "",
-		}}
+func checkNamespacesHaveRelation(namespace *namespace, namespaces []string, relationType item, relation string) typeCheck {
+	if len(namespaces) == 0 {
+		namespaces = []string{
+			namespace.Name,
+		}
 	}
 	return func(p *parser) {
-
-		for _, ns := range relationTypes {
-			fmt.Printf("checking %s %s %s\n", ns.Namespace, relationType.Val, relation)
-			recursiveCheckAllRelationsTypesHaveRelation(p, relationType, ns.Namespace, relationType.Val, relation, tupleToSubjectSetTypeCheckMaxDepth)
+		for _, ns := range namespaces {
+			recursiveCheckAllRelationsTypesHaveRelation(p, relationType, ns, relationType.Val, relation, tupleToSubjectSetTypeCheckMaxDepth)
 		}
 	}
 }
