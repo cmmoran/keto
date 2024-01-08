@@ -401,6 +401,7 @@ func (p *parser) parsePermissionExpressions(finalToken itemType, depth int) *ast
 			}
 		case itam.Typ == itemOperatorArrow:
 			p.next() // consume operator
+			inBody = true
 
 		// A "(" starts a new expression group that is parsed recursively only if inBody
 		case itam.Typ == itemParenLeft && inBody:
@@ -418,6 +419,9 @@ func (p *parser) parsePermissionExpressions(finalToken itemType, depth int) *ast
 		case itam.Typ == finalToken:
 			p.next() // consume final token
 			return root
+
+		case itam.Typ == itemOperatorComma:
+			p.next() // consume comma that is not finalToken
 
 		case itam.Typ == itemBraceRight:
 			// We don't consume the '}' here, to allow `parsePermits` to consume
@@ -546,7 +550,7 @@ func (p *parser) parsePermissionExpression(depth int) (rewrite ast.Child) {
 		}
 		if _, parentOk := p.peekFrame(); parentOk {
 			// @TODO: Add this functionality later
-			p.addFatal(verb, "nesting '== ctx.subject' in traversals are not yet supported", verb.Val)
+			p.addFatal(verb, "nesting '== ctx.subject' in traversals are not yet supported")
 		} else {
 			// Otherwise create a subject set equals object
 			rewrite = &ast.SubjectEqualsObject{}

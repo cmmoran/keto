@@ -123,7 +123,7 @@ func checkNamespacesHavesRelation(namespacePtr *namespace, namespaces []namespac
 			}
 			p.addErr(relation,
 				"namespace %q did not declare relation %q",
-				ns, relation.Val)
+				ns.Name, relation.Val)
 			return
 		}
 	}
