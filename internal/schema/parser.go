@@ -529,16 +529,28 @@ func (p *parser) parsePermissionExpression(depth int) (rewrite ast.Child) {
 	var relation, verb item
 
 	switch {
-	case p.matchIf(is(itemOperatorEquals), "==", "ctx", ".", "subject"):
-		return &ast.SubjectEqualsObject{}
-	case !p.match(".", &verb):
-		return
-	}
-	if !p.matchPropertyAccess(&relation) {
-		return
+	case p.matchIf(is(itemOperatorEquals), "=="):
+		verb = p.peek()
+		verb.Val = "equals"
+		relation = item{Val: ""}
+	case p.match(".", &verb):
+		if !p.matchPropertyAccess(&relation) {
+			return
+		}
 	}
 
 	switch verb.Val {
+	case "equals":
+		if !p.match("ctx", ".", "subject") {
+			return
+		}
+		if _, parentOk := p.peekFrame(); parentOk {
+			// @TODO: Add this functionality later
+			p.addFatal(verb, "nesting '== ctx.subject' in traversals are not yet supported", verb.Val)
+		} else {
+			// Otherwise create a subject set equals object
+			rewrite = &ast.SubjectEqualsObject{}
+		}
 	case "related":
 		if !p.match(".") {
 			return

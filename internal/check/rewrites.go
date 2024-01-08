@@ -233,26 +233,31 @@ func (e *Engine) checkSubjectEqualsObject(
 		WithField("request", r.String()).
 		Trace("check subject equals object")
 
-	var objAsSubj relationtuple.Subject
-	switch r.Subject.(type) {
-	case *relationtuple.SubjectSet:
-		objAsSubj = &relationtuple.SubjectSet{
-			Namespace: r.Namespace,
-			Object:    r.Object,
-			Relation:  r.Relation,
+	return func(ctx context.Context, resultCh chan<- checkgroup.Result) {
+		g := checkgroup.New(ctx)
+		var objAsSubj relationtuple.Subject
+		switch r.Subject.(type) {
+		case *relationtuple.SubjectSet:
+			objAsSubj = &relationtuple.SubjectSet{
+				Namespace: r.Namespace,
+				Object:    r.Object,
+				Relation:  r.Relation,
+			}
+		case *relationtuple.SubjectID:
+			objAsSubj = &relationtuple.SubjectID{
+				ID: r.Object,
+			}
+		default:
+			g.Add(checkgroup.UnknownMemberFunc)
 		}
-	case *relationtuple.SubjectID:
-		objAsSubj = &relationtuple.SubjectID{
-			ID: r.Object,
+		if r.Subject.Equals(objAsSubj) {
+			g.Add(checkgroup.IsMemberFunc)
+		} else {
+			g.Add(checkgroup.NotMemberFunc)
 		}
-	default:
-		return checkgroup.UnknownMemberFunc
-	}
-	if r.Subject.Equals(objAsSubj) {
-		return checkgroup.IsMemberFunc
-	}
 
-	return checkgroup.NotMemberFunc
+		resultCh <- g.Result()
+	}
 }
 
 // checkComputedSubjectSet rewrites the relation tuple to use the subject-set relation
