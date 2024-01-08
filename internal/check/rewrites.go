@@ -211,11 +211,11 @@ func (e *Engine) checkInverted(
 	}
 }
 
-// checkSubjectEqualsObject verifies that the subject and object are the same.
+// checkSubjectEqualsObject verifies that, for a given tuple, the subject and object are the same.
 //
 // Checks that the subject and object refer to the same entity. The check
 // is performed by creating a subject from the object based on what the tuple subject type is.
-// If the tuple subject is a SubjectSet, the subject's Namespace is used with the object. If the
+// If the tuple subject is a SubjectSet, the tuple's Namespace is used with the object. If the
 // tuple subject is a SubjectID, the object's ID is used as a SubjectID.
 // The object-subject and tuple subject are compared using Subject.Equals. This was added to support
 // `this == ctx.subject` for identity permission cases. See https://github.com/ory/keto/issues/1204
@@ -239,6 +239,7 @@ func (e *Engine) checkSubjectEqualsObject(
 		objAsSubj = &relationtuple.SubjectSet{
 			Namespace: r.Namespace,
 			Object:    r.Object,
+			Relation:  r.Relation,
 		}
 	case *relationtuple.SubjectID:
 		objAsSubj = &relationtuple.SubjectID{
@@ -345,6 +346,20 @@ func (e *Engine) checkTupleToSubjectSet(
 					qObj = t.Subject.UniqueID()
 				}
 				for _, child := range subjectSet.Children {
+					if childComputedSubjectSet, ok := child.(*ast.ComputedSubjectSet); ok {
+						nss := subjectSet.Namespaces
+						if len(subjectSet.Namespaces) == 0 {
+							nss = []string{tuple.Namespace}
+						}
+						for _, ns := range nss {
+							g.Add(e.checkComputedSubjectSet(ctx, &relationTuple{
+								Namespace: ns,
+								Object:    qObj,
+								Relation:  childComputedSubjectSet.Relation,
+								Subject:   tuple.Subject,
+							}, childComputedSubjectSet, restDepth-1))
+						}
+					}
 					if childTupleToSubjectSet, ok := child.(*ast.TupleToSubjectSet); ok {
 						nss := childTupleToSubjectSet.Namespaces
 						if len(childTupleToSubjectSet.Namespaces) == 0 {

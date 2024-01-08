@@ -9,15 +9,14 @@ import (
 
 type (
 	namespaceQuery []namespace
-	typeQuery      []ast.RelationType
 	relationQuery  []ast.Relation
 	typeCheck      func(p *parser)
 )
 
-func (tq typeQuery) namespaces() []string {
+func (ns namespaceQuery) namespaces() []string {
 	res := make([]string, 0)
-	for _, t := range tq {
-		res = append(res, t.Namespace)
+	for _, t := range ns {
+		res = append(res, t.Name)
 	}
 
 	return res
@@ -110,45 +109,37 @@ func checkCurrentNamespaceHasRelation(current *namespace, relation item) typeChe
 
 // checkArbitraryNamespaceHasRelation checks that the given relation exists in the
 // given namespaces.
-func checkNamespacesHasRelationTypesRelations(namespace *namespace, namespaces []string, relation item) typeCheck {
+func checkNamespacesHavesRelation(namespacePtr *namespace, namespaces []namespace, relation item) typeCheck {
 	if len(namespaces) == 0 {
-		namespaces = []string{
-			namespace.Name,
+		namespaces = []namespace{
+			*namespacePtr,
 		}
 	}
+
 	return func(p *parser) {
 		for _, ns := range namespaces {
-			if n, ok := namespaceQuery(p.namespaces).find(ns); ok {
-				if _, ok := relationQuery(n.Relations).find(relation.Val); ok {
-					return
-				}
-				p.addErr(relation,
-					"namespace %q did not declare relation %q",
-					ns, relation.Val)
+			if _, ok := relationQuery(ns.Relations).find(relation.Val); ok {
 				return
 			}
-			p.addErr(relation, "namespace %q was not declared", ns)
+			p.addErr(relation,
+				"namespace %q did not declare relation %q",
+				ns, relation.Val)
+			return
 		}
 	}
 }
 
-func checkNamespacesHaveRelation(namespace *namespace, namespaces []string, relationType item, relation string) typeCheck {
+func checkNamespacesHaveRelationTypeAndRelation(namespacePtr *namespace, namespaces []namespace, relationType item, relation string) typeCheck {
 	if len(namespaces) == 0 {
-		namespaces = []string{
-			namespace.Name,
+		namespaces = []namespace{
+			*namespacePtr,
 		}
 	}
+
 	return func(p *parser) {
 		for _, ns := range namespaces {
-			recursiveCheckAllRelationsTypesHaveRelation(p, relationType, ns, relationType.Val, relation, tupleToSubjectSetTypeCheckMaxDepth)
+			recursiveCheckAllRelationsTypesHaveRelation(p, relationType, ns.Name, relationType.Val, relation, tupleToSubjectSetTypeCheckMaxDepth)
 		}
-	}
-}
-
-func checkAllRelationsTypesHaveRelation(current *namespace, relationType item, relation string) typeCheck {
-	namespace := current.Name
-	return func(p *parser) {
-		recursiveCheckAllRelationsTypesHaveRelation(p, relationType, namespace, relationType.Val, relation, tupleToSubjectSetTypeCheckMaxDepth)
 	}
 }
 

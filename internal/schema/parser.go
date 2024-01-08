@@ -5,6 +5,7 @@ package schema
 
 import (
 	"fmt"
+	"golang.org/x/exp/slices"
 
 	internalNamespace "github.com/ory/keto/internal/namespace"
 	"github.com/ory/keto/internal/namespace/ast"
@@ -14,69 +15,82 @@ type (
 	namespace = internalNamespace.Namespace
 
 	parser struct {
-		context    [][]ast.RelationType
-		lexer      *lexer        // lexer to get tokens from
-		namespaces []namespace   // list of parsed namespaces
-		namespace  namespace     // current namespace
-		errors     []*ParseError // errors encountered during parsing
-		fatal      bool          // parser encountered a fatal error
-		lookahead  *item         // lookahead token
-		checks     []typeCheck   // checks to perform on the namespace
+		traverseStack []traverseFrame // stack to track traversal context
+		lexer         *lexer          // lexer to get tokens from
+		namespaces    []namespace     // list of parsed namespaces
+		namespace     namespace       // current namespace
+		errors        []*ParseError   // errors encountered during parsing
+		fatal         bool            // parser encountered a fatal error
+		lookahead     *item           // lookahead token
+		checks        []typeCheck     // checks to perform on the namespace
+	}
+	traverseFrame struct {
+		containers []namespace
+		relation   string
+		computed   string
+		identifier ast.Relation
 	}
 )
 
 func Parse(input string) ([]namespace, []*ParseError) {
 	p := &parser{
-		lexer:   Lex("input", input),
-		context: make([][]ast.RelationType, 0),
+		lexer:         Lex("input", input),
+		traverseStack: make([]traverseFrame, 0),
 	}
 	return p.parse()
 }
 
-func (p *parser) pushContext(item item) {
-	var current []ast.RelationType = nil
-	if len(p.context) > 0 {
-		current = p.context[0]
-	}
-	if ident, ok := p.parseRelationTypeFromIdentifier(current, item); ok {
-		if len(p.context) > 1 {
-			p.context = append(p.context[:1], p.context[0:]...)
-			p.context[0] = ident
-		} else {
-			p.context = append([][]ast.RelationType{ident}, p.context...)
-			p.context[0] = ident
+func (p *parser) pushFrame(relation item) {
+	var (
+		current traverseFrame
+	)
+	if len(p.traverseStack) == 0 {
+		if rels, ok := relationQuery(p.namespace.Relations).find(relation.Val); ok {
+			current = traverseFrame{
+				containers: []namespace{p.namespace},
+				relation:   relation.Val,
+				computed:   "", // set by body of traversal
+				identifier: *rels,
+			}
 		}
+	} else if len(p.traverseStack) > 0 {
+		parent := p.traverseStack[0]
+		current = traverseFrame{}
+		for _, pit := range parent.identifier.Types {
+			pns, _ := namespaceQuery(p.namespaces).find(pit.Namespace)
+			if rels, ok := relationQuery(pns.Relations).find(relation.Val); ok {
+				current.containers = append(current.containers, *pns)
+				current.relation = rels.Name
+				current.computed = ""
+				current.identifier = *rels
+			}
+		}
+	}
+	if len(p.traverseStack) > 1 {
+		p.traverseStack = append(p.traverseStack[:1], p.traverseStack[0:]...)
+		p.traverseStack[0] = current
 	} else {
-		panic("wtf")
+		p.traverseStack = append([]traverseFrame{current}, p.traverseStack...)
 	}
 }
 
-func (p *parser) popContext() typeQuery {
-	if len(p.context) == 1 {
-		p.context = make([][]ast.RelationType, 0)
-	} else if len(p.context) > 1 {
-		p.context = p.context[1:]
+func (p *parser) popFrame() (*traverseFrame, bool) {
+	current := &p.traverseStack[0]
+	if len(p.traverseStack) == 1 {
+		p.traverseStack = make([]traverseFrame, 0)
+	} else if len(p.traverseStack) > 1 {
+		p.traverseStack = p.traverseStack[1:]
 	}
 
-	if len(p.context) == 0 {
-		return []ast.RelationType{{
-			Namespace: p.namespace.Name,
-			Relation:  "",
-		}}
-	}
-
-	return p.context[0]
+	return current, current != nil
 }
 
-func (p *parser) peekContext() typeQuery {
-	if len(p.context) == 0 {
-		return []ast.RelationType{{
-			Namespace: p.namespace.Name,
-			Relation:  "",
-		}}
+func (p *parser) peekFrame() (*traverseFrame, bool) {
+	if len(p.traverseStack) == 0 {
+		return nil, false
 	}
 
-	return p.context[0]
+	return &p.traverseStack[0], true
 }
 
 func (p *parser) next() (item item) {
@@ -204,6 +218,17 @@ func is(typ itemType) itemPredicate {
 	}
 }
 
+func or(typs ...itemType) itemPredicate {
+	return func(item item) bool {
+		for _, typ := range typs {
+			if item.Typ == typ {
+				return true
+			}
+		}
+		return false
+	}
+}
+
 // matchIf matches the tokens iff. the predicate is true.
 func (p *parser) matchIf(predicate itemPredicate, tokens ...interface{}) (matched bool) {
 	if p.fatal {
@@ -314,17 +339,13 @@ func (p *parser) parseTypeUnion(endToken itemType) (types []ast.RelationType) {
 func (p *parser) parsePermits() {
 	p.match("=", "{")
 	for !p.fatal {
-		switch item := p.next(); item.Typ {
+		switch itam := p.next(); itam.Typ {
 
 		case itemBraceRight:
 			return
 
 		case itemIdentifier, itemStringLiteral:
-			permission := item.Val
-			p.match(
-				":", "(", "ctx", optional(":", "Context"), ")",
-				optional(":", "boolean"), "=>",
-			)
+			permission := itam.Val
 
 			rewrite := simplifyExpression(p.parsePermissionExpressions(itemOperatorComma, expressionNestingMaxDepth))
 			if rewrite == nil {
@@ -337,32 +358,10 @@ func (p *parser) parsePermits() {
 				})
 
 		default:
-			p.addFatal(item, "expected identifier or '}', got %s %q", item.Typ.String(), item.Val)
+			p.addFatal(itam, "expected identifier or '}', got %s %q", itam.Typ.String(), itam.Val)
 			return
 		}
 	}
-}
-
-func (p *parser) parseRelationTypeFromIdentifier(relations []ast.RelationType, ident item) ([]ast.RelationType, bool) {
-	if ident.Val == "" {
-		return []ast.RelationType{}, false
-	}
-	var search []ast.Relation
-	if relations == nil || len(relations) == 0 || (len(relations) == 1 && relations[0].Namespace == p.namespace.Name) {
-		search = p.namespace.Relations
-	} else {
-		search = make([]ast.Relation, 0)
-		for _, rel := range relations {
-			ns, _ := namespaceQuery(p.namespaces).find(rel.Namespace)
-			search = append(search, ns.Relations...)
-		}
-	}
-
-	if rels, ok := relationQuery(search).find(ident.Val); ok {
-		return rels.Types, true
-	}
-
-	return []ast.RelationType{}, false
 }
 
 func (p *parser) parsePermissionExpressions(finalToken itemType, depth int) *ast.SubjectSetRewrite {
@@ -377,32 +376,55 @@ func (p *parser) parsePermissionExpressions(finalToken itemType, depth int) *ast
 	// We only expect an expression in the beginning and after a binary
 	// operator.
 	expectExpression := true
+	// inBody indicates that the arguments section has already been parsed and any '(' will indicate a grouping
+	inBody := false
+	// the current context variable, i.e., this
+	var ctx item
 
 	// TODO(hperl): Split this into two state machines: One that parses an
 	// expression or expression group; and one that parses a binary operator.
 	for !p.fatal {
-		switch item := p.peek(); {
-
-		// A "(" starts a new expression group that is parsed recursively.
-		case item.Typ == itemParenLeft:
-			p.next() // consume paren
-			child := p.parsePermissionExpressions(itemParenRight, depth-1)
-			if child == nil {
+		switch itam := p.peek(); {
+		case itam.Typ == itemOperatorColon:
+			p.match(
+				":", "(", "ctx", optional(":", "Context"), ")",
+				optional(":", "boolean"),
+			)
+			// We just entered the permission definition, next should be itemOperatorArrow
+		case itam.Typ == itemParenLeft && !inBody:
+			// We should only hit this point on a nested traverse:
+			switch {
+			case p.matchIf(is(itemParenLeft), "(", &ctx, ")"):
+			case p.match(&ctx):
+			default:
 				return nil
 			}
-			root = addChild(root, child)
+		case itam.Typ == itemOperatorArrow:
+			p.next() // consume operator
+
+		// A "(" starts a new expression group that is parsed recursively only if inBody
+		case itam.Typ == itemParenLeft && inBody:
+			p.next() // consume paren
+			child := p.parsePermissionExpressions(itemParenRight, depth-1)
+			if child != nil {
+				root = addChild(root, child)
+			}
 			expectExpression = false
 
-		case item.Typ == finalToken:
+		case slices.Contains([]itemType{itemKeywordThis, itemIdentifier, itemStringLiteral}, itam.Typ), ctx.Typ == 0 && !inBody:
+			p.matchIf(or(itemKeywordThis, itemIdentifier, itemStringLiteral), &ctx)
+			inBody = true
+
+		case itam.Typ == finalToken:
 			p.next() // consume final token
 			return root
 
-		case item.Typ == itemBraceRight:
+		case itam.Typ == itemBraceRight:
 			// We don't consume the '}' here, to allow `parsePermits` to consume
 			// it.
 			return root
 
-		case item.Typ == itemOperatorAnd, item.Typ == itemOperatorOr:
+		case itam.Typ == itemOperatorAnd, itam.Typ == itemOperatorOr:
 			p.next() // consume operator
 
 			// A nil root means that we saw a binary expression before the first
@@ -411,15 +433,16 @@ func (p *parser) parsePermissionExpressions(finalToken itemType, depth int) *ast
 				return nil
 			}
 			newRoot := &ast.SubjectSetRewrite{
-				Operation: setOperation(item.Typ),
+				Operation: setOperation(itam.Typ),
 				Children:  []ast.Child{root},
 			}
 			root = newRoot
 			expectExpression = true
+			ctx.Reset()
 
 		// A "not" creates an AST node where the children are either a
 		// single expression, or a list of expressions grouped by "()".
-		case item.Typ == itemOperatorNot:
+		case itam.Typ == itemOperatorNot:
 			p.next() // consume operator
 			child := p.parseNotExpression(depth - 1)
 			if child == nil {
@@ -429,17 +452,17 @@ func (p *parser) parsePermissionExpressions(finalToken itemType, depth int) *ast
 			expectExpression = false
 
 		default:
+			// itam.Val here is usually '.'
 			if !expectExpression {
 				// Two expressions can't follow each other directly, they must
 				// be separated by a binary operator.
-				p.addFatal(item, "did not expect another expression")
+				p.addFatal(itam, "did not expect another expression")
 				return nil
 			}
 			child := p.parsePermissionExpression(tupleToSubjectSetTraversalMaxDepth)
-			if child == nil {
-				return nil
+			if child != nil {
+				root = addChild(root, child)
 			}
-			root = addChild(root, child)
 			expectExpression = true
 		}
 	}
@@ -454,11 +477,16 @@ func (p *parser) parseNotExpression(depth int) ast.Child {
 		return nil
 	}
 
-	var child ast.Child
-	if item := p.peek(); item.Typ == itemParenLeft {
+	var (
+		child ast.Child
+		ctx   item
+	)
+
+	if itam := p.peek(); itam.Typ == itemParenLeft {
 		p.next() // consume paren
 		child = p.parsePermissionExpressions(itemParenRight, depth-1)
 	} else {
+		p.match(&ctx)
 		child = p.parsePermissionExpression(depth - 1)
 	}
 	if child == nil {
@@ -490,7 +518,7 @@ func (p *parser) matchPropertyAccess(propertyName any) bool {
 	return p.matchIf(is(itemBracketLeft), "[", propertyName, "]") || p.match(".", propertyName)
 }
 
-func (p *parser) parsePermissionExpression(depth int) (child ast.Child) {
+func (p *parser) parsePermissionExpression(depth int) (rewrite ast.Child) {
 	if depth <= 0 {
 		p.addFatal(p.peek(),
 			"expression nested too deeply; maximal nesting depth is %d",
@@ -498,20 +526,15 @@ func (p *parser) parsePermissionExpression(depth int) (child ast.Child) {
 		return nil
 	}
 
-	var ctx, name, verb item
-
-	// 'this' or arg variable
-	if !p.match(&ctx) {
-		return
-	}
+	var relation, verb item
 
 	switch {
-	case p.matchIf(is(itemOperatorEquals), "=="):
-		return p.parseComputedSubjectSet(ctx)
+	case p.matchIf(is(itemOperatorEquals), "==", "ctx", ".", "subject"):
+		return &ast.SubjectEqualsObject{}
 	case !p.match(".", &verb):
 		return
 	}
-	if !p.matchPropertyAccess(&name) {
+	if !p.matchPropertyAccess(&relation) {
 		return
 	}
 
@@ -522,125 +545,78 @@ func (p *parser) parsePermissionExpression(depth int) (child ast.Child) {
 		}
 		switch itam := p.next(); itam.Val {
 		case "traverse":
-			child = p.parseTupleToSubjectSet(name, depth-1)
+			if !p.match("(") {
+				return
+			}
+			// Before pushing this frame, check for a parent frame and set the parent frame computed value to this relation
+			if frame, parentOk := p.peekFrame(); parentOk {
+				frame.computed = relation.Val
+			}
+
+			// Push the current relation as a traversal frame
+			p.pushFrame(relation)
+			// Parse the traversal expression(s)
+			child := p.parsePermissionExpressions(itemParenRight, depth-1)
+			if frame, ok := p.popFrame(); ok {
+				var children ast.Children = nil
+				if child != nil {
+					if len(child.Children) > 0 {
+						children = child.Children
+					} else {
+						// This shouldn't happen since traversals will have either nested TupleToSubjectSets or nil as their children
+						// Since p.parsePermissionExpressions(...) is used to parse the traversal, the result is an *ast.SubjectSetRewrite
+						// This is, in turn, flattened by setting this TupleToSubjectSet's Children to the result's Children
+						// Important to ensure parity with this is executed during checks
+						children = ast.Children{child}
+					}
+				}
+				p.addCheck(checkNamespacesHavesRelation(&p.namespace, frame.containers, relation))
+				p.addCheck(checkNamespacesHaveRelationTypeAndRelation(&p.namespace, frame.containers, relation, frame.computed))
+				rewrite = &ast.TupleToSubjectSet{
+					Namespaces:                 namespaceQuery(frame.containers).namespaces(),
+					Relation:                   frame.relation,
+					ComputedSubjectSetRelation: frame.computed,
+					Children:                   children,
+				}
+			} else {
+				p.addFatal(itam, "expected completion of traversal but frame context not found")
+			}
 		case "includes":
-			child = p.parseComputedSubjectSet(name)
+			if !p.match("(", "ctx", ".", "subject", optional(","), ")") {
+				return nil
+			}
+			if parent, parentOk := p.peekFrame(); parentOk {
+				// If we're in a traversal, just set the traversal's computed value so the result is a tuple to subject set
+				parent.computed = relation.Val
+				rewrite = nil
+				// No need to add checks here, the parent frame will handle them
+			} else {
+				// Otherwise create a computed subject set
+				p.addCheck(checkCurrentNamespaceHasRelation(&p.namespace, relation))
+				rewrite = &ast.ComputedSubjectSet{Relation: relation.Val}
+			}
 		default:
 			p.addFatal(itam, "expected 'traverse' or 'includes', got %q", itam.Val)
 		}
 
 	case "permits":
 		if !p.match("(", "ctx", ")") {
-			return
+			return nil
 		}
-		p.addCheck(checkCurrentNamespaceHasRelation(&p.namespace, name))
-		return &ast.ComputedSubjectSet{Relation: name.Val}
-
+		if parent, parentOk := p.peekFrame(); parentOk {
+			// If we're in a traversal, just set the traversal's computed value so the result is a tuple to subject set
+			parent.computed = relation.Val
+			rewrite = nil
+		} else {
+			// Otherwise create a computed subject set
+			p.addCheck(checkCurrentNamespaceHasRelation(&p.namespace, relation))
+			rewrite = &ast.ComputedSubjectSet{Relation: relation.Val}
+		}
 	default:
 		p.addFatal(verb, "expected 'related' or 'permits', got %q", verb.Val)
 	}
 
 	return
-}
-
-func (p *parser) parseTupleToSubjectSet(relation item, depth int) (rewrite ast.Child) {
-	var (
-		arg, verb, name item
-	)
-	if !p.match("(") {
-		return nil
-	}
-
-	switch {
-	case p.matchIf(is(itemParenLeft), "(", &arg, ")"):
-	case p.match(&arg):
-	default:
-		return nil
-	}
-	p.match("=>")
-	p.match(arg.Val, ".", &verb)
-
-	switch verb.Val {
-	case "related":
-		if !p.matchPropertyAccess(&name) {
-			return nil
-		}
-		if !p.match(".") {
-			return nil
-		}
-		switch itam := p.next(); itam.Val {
-		case "traverse":
-			p.pushContext(relation)
-			child := p.parseTupleToSubjectSet(name, depth-1)
-			current := p.popContext()
-			namespaces := current.namespaces()
-			//Remap current to associated namespace
-			rewrite = &ast.TupleToSubjectSet{
-				Namespaces:                 namespaces,
-				Relation:                   relation.Val,
-				ComputedSubjectSetRelation: name.Val,
-				Children:                   ast.Children{child},
-			}
-
-			return rewrite
-		case "includes":
-			if !p.match("(", "ctx", ".", "subject", optional(","), ")") {
-				return nil
-			}
-			current := p.peekContext()
-			namespaces := current.namespaces()
-			for i := depth; p.matchIf(is(itemParenRight), ")") && i < tupleToSubjectSetTraversalMaxDepth-1; i++ {
-			}
-			p.addCheck(checkNamespacesHaveRelation(
-				&p.namespace, namespaces, relation, name.Val,
-			))
-			p.addCheck(checkNamespacesHasRelationTypesRelations(&p.namespace, namespaces, relation))
-			rewrite = &ast.TupleToSubjectSet{
-				Namespaces:                 namespaces,
-				Relation:                   relation.Val,
-				ComputedSubjectSetRelation: name.Val,
-			}
-		}
-	case "permits":
-		if !p.matchPropertyAccess(&name) {
-			return nil
-		}
-		p.match("(", "ctx", ")")
-		for i := depth; p.matchIf(is(itemParenRight), ")") && i < tupleToSubjectSetTraversalMaxDepth-1; i++ {
-		}
-
-		current := p.peekContext()
-		namespaces := typeQuery(current).namespaces()
-		p.addCheck(checkNamespacesHaveRelation(
-			&p.namespace, namespaces, relation, name.Val,
-		))
-		p.addCheck(checkNamespacesHasRelationTypesRelations(&p.namespace, namespaces, relation))
-		rewrite = &ast.TupleToSubjectSet{
-			Namespaces:                 namespaces,
-			Relation:                   relation.Val,
-			ComputedSubjectSetRelation: name.Val,
-		}
-	default:
-		p.addFatal(verb, "expected 'related' or 'permits', got %q", verb)
-		return nil
-	}
-
-	return
-}
-
-func (p *parser) parseComputedSubjectSet(relation item) (rewrite ast.Child) {
-	if relation.Val == "this" {
-		if !p.match("ctx", ".", "subject") {
-			return nil
-		}
-		return &ast.SubjectEqualsObject{}
-	} else {
-		if !p.match("(", "ctx", ".", "subject", optional(","), ")") {
-			return nil
-		}
-		p.addCheck(checkCurrentNamespaceHasRelation(&p.namespace, relation))
-		return &ast.ComputedSubjectSet{Relation: relation.Val}
-	}
 }
 
 // simplifyExpression rewrites the expression to use n-ary set operations

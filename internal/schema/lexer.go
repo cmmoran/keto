@@ -340,3 +340,10 @@ loop:
 
 	return lexCode
 }
+
+func (i item) Reset() {
+	i.Val = ""
+	i.End = 0
+	i.Typ = 0
+	i.Start = 0
+}
