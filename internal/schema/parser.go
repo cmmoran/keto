@@ -538,14 +538,14 @@ func (p *parser) parsePermissionExpression(depth int) (rewrite ast.Child) {
 		verb.Val = "equals"
 		relation = item{Val: ""}
 	case p.match(".", &verb):
-		if !p.matchPropertyAccess(&relation) {
+		if verb.Val != "equals" && !p.matchPropertyAccess(&relation) {
 			return
 		}
 	}
 
 	switch verb.Val {
 	case "equals":
-		if !p.match("ctx", ".", "subject") {
+		if !p.match(optional("("), "ctx", ".", "subject", optional(")")) {
 			return
 		}
 		if _, parentOk := p.peekFrame(); parentOk {
