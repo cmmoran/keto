@@ -5,7 +5,6 @@ package checkgroup
 
 import (
 	"context"
-
 	"github.com/pkg/errors"
 
 	"github.com/ory/keto/internal/relationtuple"

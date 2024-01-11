@@ -350,40 +350,72 @@ func (e *Engine) checkTupleToSubjectSet(
 				} else {
 					qObj = t.Subject.UniqueID()
 				}
-				for _, child := range subjectSet.Children {
-					if childComputedSubjectSet, ok := child.(*ast.ComputedSubjectSet); ok {
-						nss := subjectSet.Namespaces
-						if len(subjectSet.Namespaces) == 0 {
-							nss = []string{tuple.Namespace}
-						}
-						for _, ns := range nss {
-							g.Add(e.checkComputedSubjectSet(ctx, &relationTuple{
-								Namespace: ns,
-								Object:    qObj,
-								Relation:  childComputedSubjectSet.Relation,
-								Subject:   tuple.Subject,
-							}, childComputedSubjectSet, restDepth-1))
-						}
-					}
-					if childTupleToSubjectSet, ok := child.(*ast.TupleToSubjectSet); ok {
-						nss := childTupleToSubjectSet.Namespaces
-						if len(childTupleToSubjectSet.Namespaces) == 0 {
-							nss = []string{tuple.Namespace}
-						}
-						for _, ns := range nss {
-							childRelationTuple := &relationTuple{
-								Namespace: ns,
-								Object:    qObj,
-								Relation:  childTupleToSubjectSet.Relation,
-								Subject:   tuple.Subject,
-							}
-							g.Add(e.checkTupleToSubjectSet(childRelationTuple, childTupleToSubjectSet, restDepth-1))
-						}
-					}
-				}
+				// Handle arbitrary-depth-traversals
+				e.processTupleChildren(ctx, g, tuple, subjectSet, qObj, restDepth)
 			}
 		}
 
 		resultCh <- g.Result()
+	}
+}
+
+func (e *Engine) processTupleChildren(ctx context.Context, g checkgroup.Checkgroup, tuple *relationTuple, subjectSet *ast.TupleToSubjectSet, qObj uuid.UUID, restDepth int) {
+	frames := subjectSet.Frames
+	checks := make([]checkgroup.CheckFunc, 0)
+
+	for _, child := range subjectSet.Children {
+		for _, frame := range frames {
+			for _, frameUnions := range frame.Types {
+				if len(frameUnions.Types) > 0 {
+					for _, frameIntersections := range frameUnions.Types {
+						// only one must have childComputedSubject.Relation
+						switch child.(type) {
+						case *ast.ComputedSubjectSet:
+							ss := child.(*ast.ComputedSubjectSet)
+							r := &relationTuple{
+								Namespace: frameIntersections.Namespace,
+								Object:    qObj,
+								Relation:  ss.Relation,
+								Subject:   tuple.Subject,
+							}
+							checks = append(checks, e.checkComputedSubjectSet(ctx, r, ss, restDepth-1))
+							g.Add(func(ctx context.Context, resultCh chan<- checkgroup.Result) {
+								resultCh <- or(ctx, checks)
+							})
+						case *ast.TupleToSubjectSet:
+							ss := child.(*ast.TupleToSubjectSet)
+							r := &relationTuple{
+								Namespace: frameIntersections.Namespace,
+								Object:    qObj,
+								Relation:  ss.Relation,
+								Subject:   tuple.Subject,
+							}
+							g.Add(e.checkTupleToSubjectSet(r, ss, restDepth-1))
+						}
+					}
+				} else if len(frameUnions.Namespace) > 0 {
+					// all must have childComputedSubject.Relation
+					switch child.(type) {
+					case *ast.ComputedSubjectSet:
+						ss := child.(*ast.ComputedSubjectSet)
+						g.Add(e.checkComputedSubjectSet(ctx, &relationTuple{
+							Namespace: frameUnions.Namespace,
+							Object:    qObj,
+							Relation:  ss.Relation,
+							Subject:   tuple.Subject,
+						}, ss, restDepth-1))
+					case *ast.TupleToSubjectSet:
+						ss := child.(*ast.TupleToSubjectSet)
+						r := &relationTuple{
+							Namespace: frameUnions.Namespace,
+							Object:    qObj,
+							Relation:  ss.Relation,
+							Subject:   tuple.Subject,
+						}
+						g.Add(e.checkTupleToSubjectSet(r, ss, restDepth-1))
+					}
+				}
+			}
+		}
 	}
 }

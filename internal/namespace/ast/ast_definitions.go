@@ -3,7 +3,9 @@
 
 package ast
 
-import "encoding/json"
+import (
+	"encoding/json"
+)
 
 type (
 	Relation struct {
@@ -13,8 +15,12 @@ type (
 	}
 
 	RelationType struct {
+		// relationType type unions will have Namespace and Relation populated
 		Namespace string `json:"namespace"`
 		Relation  string `json:"relation,omitempty"` // optional
+
+		// relationType type intersections will be modeled in Types
+		Types []RelationType `json:"types,omitempty"`
 	}
 
 	SubjectSetRewrite struct {
@@ -38,10 +44,10 @@ type (
 	}
 
 	TupleToSubjectSet struct {
-		Namespaces                 []string `json:"-"`
-		Relation                   string   `json:"relation"`
-		ComputedSubjectSetRelation string   `json:"computed_subject_set_relation"`
-		Children                   Children `json:"children,omitempty"`
+		Frames                     []Relation `json:"-"`
+		Relation                   string     `json:"relation"`
+		ComputedSubjectSetRelation string     `json:"computed_subject_set_relation"`
+		Children                   Children   `json:"children,omitempty"`
 	}
 
 	// InvertResult inverts the check result of the child.
@@ -60,7 +66,6 @@ const (
 
 func (i Operator) MarshalJSON() ([]byte, error) {
 	return json.Marshal(i.String())
-
 }
 
 func (r *SubjectSetRewrite) AsRewrite() *SubjectSetRewrite { return r }

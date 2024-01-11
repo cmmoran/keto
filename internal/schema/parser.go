@@ -25,10 +25,9 @@ type (
 		checks        []typeCheck     // checks to perform on the namespace
 	}
 	traverseFrame struct {
-		containers []namespace
-		relation   string
-		computed   string
-		identifier ast.Relation
+		identifiers []ast.Relation
+		relation    string
+		computed    string
 	}
 )
 
@@ -45,24 +44,26 @@ func (p *parser) pushFrame(relation item) {
 		current traverseFrame
 	)
 	if len(p.traverseStack) == 0 {
+		// We start in a single namespace traversing into a relation with some arbitrary "types"
 		if rels, ok := relationQuery(p.namespace.Relations).find(relation.Val); ok {
 			current = traverseFrame{
-				containers: []namespace{p.namespace},
-				relation:   relation.Val,
-				computed:   "", // set by body of traversal
-				identifier: *rels,
+				identifiers: []ast.Relation{*rels},
+				relation:    relation.Val,
+				computed:    "", // set by body of traversal
 			}
 		}
 	} else if len(p.traverseStack) > 0 {
 		parent := p.traverseStack[0]
-		current = traverseFrame{}
-		for _, pit := range parent.identifier.Types {
-			pns, _ := namespaceQuery(p.namespaces).find(pit.Namespace)
-			if rels, ok := relationQuery(pns.Relations).find(relation.Val); ok {
-				current.containers = append(current.containers, *pns)
-				current.relation = rels.Name
-				current.computed = ""
-				current.identifier = *rels
+		current = traverseFrame{
+			identifiers: make([]ast.Relation, 0),
+			relation:    relation.Val,
+			computed:    "",
+		}
+		for _, identifier := range parent.identifiers {
+			for _, typ := range identifier.Types {
+				if rels, ok := namespaceQuery(p.namespaces).findRelation(typ.Namespace, relation.Val); ok {
+					current.identifiers = append(current.identifiers, *rels)
+				}
 			}
 		}
 	}
@@ -283,12 +284,12 @@ func (p *parser) parseRelated() {
 			switch item := p.next(); {
 			case item.Val == "Array":
 				p.match("<")
-				types = append(types, p.parseTypeUnion(itemAngledRight)...)
+				types = append(types, p.parseType(itemAngledRight)...)
 			case item.Val == "SubjectSet":
 				types = append(types, p.matchSubjectSet())
 				p.match("[", "]", optional(","))
 			case item.Typ == itemParenLeft:
-				types = append(types, p.parseTypeUnion(itemParenRight)...)
+				types = append(types, p.parseType(itemParenRight)...)
 				p.match("[", "]", optional(","))
 			default:
 				types = append(types, ast.RelationType{Namespace: item.Val})
@@ -315,22 +316,46 @@ func (p *parser) matchSubjectSet() ast.RelationType {
 	return ast.RelationType{Namespace: namespace.Val, Relation: relation.Val}
 }
 
-func (p *parser) parseTypeUnion(endToken itemType) (types []ast.RelationType) {
+func (p *parser) parseType(endToken itemType) (types []ast.RelationType) {
+	op := "union"
+
 	for !p.fatal {
 		var identifier item
 		p.match(&identifier)
-		if identifier.Val == "SubjectSet" {
-			types = append(types, p.matchSubjectSet())
+		var current ast.RelationType
+		if op == "union" {
+			if identifier.Val == "SubjectSet" {
+				current = p.matchSubjectSet()
+				types = append(types, current)
+			} else {
+				current = ast.RelationType{Namespace: identifier.Val}
+				types = append(types, current)
+				//@TODO: maybe ensureNamespaceExists to auto-create empty namespaces?
+				p.addCheck(checkNamespaceExists(identifier))
+			}
 		} else {
-			types = append(types, ast.RelationType{Namespace: identifier.Val})
-			p.addCheck(checkNamespaceExists(identifier))
+			current = types[len(types)-1]
+			if len(current.Types) == 0 {
+				current.Types = append(current.Types, ast.RelationType{Namespace: current.Namespace, Relation: current.Relation})
+				current.Namespace = ""
+				current.Relation = ""
+			}
+			if identifier.Val == "SubjectSet" {
+				current.Types = append(current.Types, p.matchSubjectSet())
+			} else {
+				current.Types = append(current.Types, ast.RelationType{Namespace: identifier.Val})
+			}
+			types[len(types)-1] = current
 		}
 		switch item := p.next(); item.Typ {
 		case endToken:
 			return
 		case itemTypeUnion:
+			op = "union"
+		case itemTypeIntersection:
+			op = "intersect"
 		default:
-			p.addFatal(item, "expected '|', got %q", item.Val)
+			p.addFatal(item, "expected '|' or '&', got %q", item.Val)
 		}
 	}
 	return
@@ -551,6 +576,7 @@ func (p *parser) parsePermissionExpression(depth int) (rewrite ast.Child) {
 		if _, parentOk := p.peekFrame(); parentOk {
 			// @TODO: Add this functionality later
 			p.addFatal(verb, "nesting '== ctx.subject' in traversals are not yet supported")
+			//rewrite = &ast.SubjectEqualsObject{}
 		} else {
 			// Otherwise create a subject set equals object
 			rewrite = &ast.SubjectEqualsObject{}
@@ -586,10 +612,10 @@ func (p *parser) parsePermissionExpression(depth int) (rewrite ast.Child) {
 						children = ast.Children{child}
 					}
 				}
-				p.addCheck(checkNamespacesHavesRelation(&p.namespace, frame.containers, relation))
-				p.addCheck(checkNamespacesHaveRelationTypeAndRelation(&p.namespace, frame.containers, relation, frame.computed))
+				//p.addCheck(checkNamespacesHavesRelation(&p.namespace, frame.identifiers, relation))
+				//p.addCheck(checkNamespacesHaveRelationTypeAndRelation(&p.namespace, frame.containers, relation, frame.computed))
 				rewrite = &ast.TupleToSubjectSet{
-					Namespaces:                 namespaceQuery(frame.containers).namespaces(),
+					Frames:                     frame.identifiers,
 					Relation:                   frame.relation,
 					ComputedSubjectSetRelation: frame.computed,
 					Children:                   children,

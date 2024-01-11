@@ -68,8 +68,9 @@ const (
 	itemOperatorComma  // ","
 
 	// misc characters
-	itemSemicolon // ";"
-	itemTypeUnion // "|"
+	itemSemicolon        // ";"
+	itemTypeUnion        // "|"
+	itemTypeIntersection // "&"
 
 	// brackets
 	itemParenLeft    // "("
@@ -233,6 +234,7 @@ var oneRuneTokens = map[rune]itemType{
 	',': itemOperatorComma,
 	';': itemSemicolon,
 	'|': itemTypeUnion,
+	'&': itemTypeIntersection,
 	'!': itemOperatorNot,
 }
 
