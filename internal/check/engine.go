@@ -227,8 +227,8 @@ func (e *Engine) checkIsAllowed(ctx context.Context, r *relationTuple, restDepth
 
 	relation, err := e.astRelationFor(ctx, r)
 	if err != nil {
-		g.Add(checkgroup.ErrorFunc(err))
-		return g.CheckFunc()
+		// Not an error Because type intersections
+		return checkgroup.NotMemberFunc
 	}
 	hasRewrite := relation != nil && relation.SubjectSetRewrite != nil
 	strictMode := e.d.Config(ctx).StrictMode()

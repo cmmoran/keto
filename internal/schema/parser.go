@@ -27,7 +27,6 @@ type (
 	traverseFrame struct {
 		identifiers []ast.Relation
 		relation    string
-		computed    string
 	}
 )
 
@@ -49,7 +48,6 @@ func (p *parser) pushFrame(relation item) {
 			current = traverseFrame{
 				identifiers: []ast.Relation{*rels},
 				relation:    relation.Val,
-				computed:    "", // set by body of traversal
 			}
 		}
 	} else if len(p.traverseStack) > 0 {
@@ -57,7 +55,6 @@ func (p *parser) pushFrame(relation item) {
 		current = traverseFrame{
 			identifiers: make([]ast.Relation, 0),
 			relation:    relation.Val,
-			computed:    "",
 		}
 		for _, identifier := range parent.identifiers {
 			for _, typ := range identifier.Types {
@@ -573,10 +570,10 @@ func (p *parser) parsePermissionExpression(depth int) (rewrite ast.Child) {
 		if !p.match(optional("("), "ctx", ".", "subject", optional(")")) {
 			return
 		}
-		if _, parentOk := p.peekFrame(); parentOk {
-			// @TODO: Add this functionality later
-			p.addFatal(verb, "nesting '== ctx.subject' in traversals are not yet supported")
-			//rewrite = &ast.SubjectEqualsObject{}
+		if frame, parentOk := p.peekFrame(); parentOk {
+			rewrite = &ast.SubjectEqualsObject{
+				Types: frame.identifiers[0].Types,
+			}
 		} else {
 			// Otherwise create a subject set equals object
 			rewrite = &ast.SubjectEqualsObject{}
@@ -590,35 +587,22 @@ func (p *parser) parsePermissionExpression(depth int) (rewrite ast.Child) {
 			if !p.match("(") {
 				return
 			}
-			// Before pushing this frame, check for a parent frame and set the parent frame computed value to this relation
-			if frame, parentOk := p.peekFrame(); parentOk {
-				frame.computed = relation.Val
-			}
-
 			// Push the current relation as a traversal frame
 			p.pushFrame(relation)
 			// Parse the traversal expression(s)
-			child := p.parsePermissionExpressions(itemParenRight, depth-1)
+			children := ast.Children{}
+			child := simplifyExpression(p.parsePermissionExpressions(itemParenRight, depth-1))
+			for child != nil {
+				children = append(children, child)
+				child = simplifyExpression(p.parsePermissionExpressions(itemParenRight, depth-1))
+			}
 			if frame, ok := p.popFrame(); ok {
-				var children ast.Children = nil
-				if child != nil {
-					if len(child.Children) > 0 {
-						children = child.Children
-					} else {
-						// This shouldn't happen since traversals will have either nested TupleToSubjectSets or nil as their children
-						// Since p.parsePermissionExpressions(...) is used to parse the traversal, the result is an *ast.SubjectSetRewrite
-						// This is, in turn, flattened by setting this TupleToSubjectSet's Children to the result's Children
-						// Important to ensure parity with this is executed during checks
-						children = ast.Children{child}
-					}
-				}
-				//p.addCheck(checkNamespacesHavesRelation(&p.namespace, frame.identifiers, relation))
-				//p.addCheck(checkNamespacesHaveRelationTypeAndRelation(&p.namespace, frame.containers, relation, frame.computed))
+				p.addCheck(checkNamespacesHavesRelation(&p.namespace, frame.identifiers, relation))
+
 				rewrite = &ast.TupleToSubjectSet{
 					Frames:                     frame.identifiers,
 					Relation:                   frame.relation,
-					ComputedSubjectSetRelation: frame.computed,
-					Children:                   children,
+					ComputedSubjectSetRelation: simplifyExpression(&ast.SubjectSetRewrite{Children: children}),
 				}
 			} else {
 				p.addFatal(itam, "expected completion of traversal but frame context not found")
@@ -629,14 +613,13 @@ func (p *parser) parsePermissionExpression(depth int) (rewrite ast.Child) {
 			}
 			if parent, parentOk := p.peekFrame(); parentOk {
 				// If we're in a traversal, just set the traversal's computed value so the result is a tuple to subject set
-				parent.computed = relation.Val
-				rewrite = nil
-				// No need to add checks here, the parent frame will handle them
+				p.addCheck(checkNamespacesHavesRelation(&p.namespace, parent.identifiers, relation))
 			} else {
 				// Otherwise create a computed subject set
 				p.addCheck(checkCurrentNamespaceHasRelation(&p.namespace, relation))
-				rewrite = &ast.ComputedSubjectSet{Relation: relation.Val}
 			}
+
+			rewrite = &ast.ComputedSubjectSet{Relation: relation.Val}
 		default:
 			p.addFatal(itam, "expected 'traverse' or 'includes', got %q", itam.Val)
 		}
@@ -647,13 +630,13 @@ func (p *parser) parsePermissionExpression(depth int) (rewrite ast.Child) {
 		}
 		if parent, parentOk := p.peekFrame(); parentOk {
 			// If we're in a traversal, just set the traversal's computed value so the result is a tuple to subject set
-			parent.computed = relation.Val
-			rewrite = nil
+			p.addCheck(checkNamespacesHavesRelation(&p.namespace, parent.identifiers, relation))
 		} else {
 			// Otherwise create a computed subject set
 			p.addCheck(checkCurrentNamespaceHasRelation(&p.namespace, relation))
-			rewrite = &ast.ComputedSubjectSet{Relation: relation.Val}
 		}
+
+		rewrite = &ast.ComputedSubjectSet{Relation: relation.Val}
 	default:
 		p.addFatal(verb, "expected 'related' or 'permits', got %q", verb.Val)
 	}
