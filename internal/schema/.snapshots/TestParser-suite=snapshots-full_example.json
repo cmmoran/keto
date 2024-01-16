@@ -55,14 +55,54 @@
                 "operator": "or",
                 "children": [
                   {
+                    "traversed_types": [
+                      {
+                        "namespace": "File",
+                        "types": [
+                          {
+                            "namespace": "File"
+                          },
+                          {
+                            "namespace": "Folder"
+                          }
+                        ]
+                      }
+                    ],
                     "relation": "parents",
-                    "computed_subject_set_relation": "viewers"
+                    "computed_subject_set_relation": {
+                      "operator": "or",
+                      "children": [
+                        {
+                          "relation": "viewers"
+                        }
+                      ]
+                    }
                   }
                 ]
               },
               {
+                "traversed_types": [
+                  {
+                    "namespace": "File",
+                    "types": [
+                      {
+                        "namespace": "File"
+                      },
+                      {
+                        "namespace": "Folder"
+                      }
+                    ]
+                  }
+                ],
                 "relation": "parents",
-                "computed_subject_set_relation": "view"
+                "computed_subject_set_relation": {
+                  "operator": "or",
+                  "children": [
+                    {
+                      "relation": "view"
+                    }
+                  ]
+                }
               }
             ]
           },
@@ -111,8 +151,25 @@
         "operator": "or",
         "children": [
           {
+            "traversed_types": [
+              {
+                "namespace": "File",
+                "types": [
+                  {
+                    "namespace": "File"
+                  }
+                ]
+              }
+            ],
             "relation": "siblings",
-            "computed_subject_set_relation": "edit"
+            "computed_subject_set_relation": {
+              "operator": "or",
+              "children": [
+                {
+                  "relation": "edit"
+                }
+              ]
+            }
           }
         ]
       }

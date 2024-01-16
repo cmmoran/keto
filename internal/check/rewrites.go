@@ -126,7 +126,7 @@ func (e *Engine) checkSubjectSetRewrite(
 		case *ast.SubjectEqualsObject:
 			checks = append(checks, checkgroup.WithEdge(checkgroup.Edge{
 				Tuple: *tuple,
-				Type:  ketoapi.TreeNodeLeaf,
+				Type:  ketoapi.TreeNodeSubjectEqObject,
 			}, e.checkSubjectEqualsObject(ctx, tuple, c, restDepth)))
 
 		default:
@@ -184,7 +184,7 @@ func (e *Engine) checkInverted(
 	case *ast.SubjectEqualsObject:
 		check = checkgroup.WithEdge(checkgroup.Edge{
 			Tuple: *tuple,
-			Type:  ketoapi.TreeNodeLeaf,
+			Type:  ketoapi.TreeNodeSubjectEqObject,
 		}, e.checkSubjectEqualsObject(ctx, tuple, c, restDepth))
 
 	default:
@@ -236,28 +236,17 @@ func (e *Engine) checkSubjectEqualsObject(
 	return func(ctx context.Context, resultCh chan<- checkgroup.Result) {
 		g := checkgroup.New(ctx)
 		var objAsSubj relationtuple.Subject
-		types := subjectSet.Types
+		types := subjectSet.TraversedTypes
 		if len(types) == 0 {
-			types = []ast.RelationType{{Namespace: r.Namespace}}
+			types = []ast.TraversedType{{Namespace: r.Namespace}}
 		}
-		for _, ssrt := range types {
-			if ssrt.IsTypeIntersection() {
-				//Or
-				switch r.Subject.(type) {
-				case *relationtuple.SubjectSet:
-					objAsSubj = &relationtuple.SubjectSet{
-						Namespace: ssrt.Namespace,
-						Object:    r.Object,
-					}
-				case *relationtuple.SubjectID:
-					objAsSubj = &relationtuple.SubjectID{
-						ID: r.Object,
-					}
-				}
-				if r.Subject.Equals(objAsSubj) {
-					g.Add(checkgroup.IsMemberFunc)
-				}
-			} else if ssrt.IsTypeSimple() {
+		checks := make([]checkgroup.CheckFunc, 0)
+		for _, sstt := range types {
+			rtypes := sstt.Types
+			if len(rtypes) == 0 {
+				rtypes = ast.RelationTypes{{Namespace: sstt.Namespace}}
+			}
+			for _, ssrt := range rtypes {
 				switch r.Subject.(type) {
 				case *relationtuple.SubjectSet:
 					objAsSubj = &relationtuple.SubjectSet{
@@ -265,34 +254,27 @@ func (e *Engine) checkSubjectEqualsObject(
 						Object:    r.Object,
 					}
 					if r.Subject.Equals(objAsSubj) {
-						g.Add(checkgroup.IsMemberFunc)
+						checks = append(checks, checkgroup.IsMemberFunc)
 					} else {
-						g.Add(checkgroup.NotMemberFunc)
+						checks = append(checks, checkgroup.NotMemberFunc)
 					}
 				case *relationtuple.SubjectID:
 					objAsSubj = &relationtuple.SubjectID{
 						ID: r.Object,
 					}
 					if r.Subject.Equals(objAsSubj) {
-						g.Add(checkgroup.IsMemberFunc)
+						checks = append(checks, checkgroup.IsMemberFunc)
 					} else {
-						g.Add(checkgroup.NotMemberFunc)
+						checks = append(checks, checkgroup.NotMemberFunc)
 					}
 				default:
-					g.Add(checkgroup.UnknownMemberFunc)
+					checks = append(checks, checkgroup.UnknownMemberFunc)
 				}
-
-			} else {
-				/*And is this even possible?
-				// Namespace: Foo
-				// Object: 123
-				// _and_
-				// Namespace: Bar
-				// Object: 123
-				*/
-				panic("Checking for equality to an object with a union type")
 			}
 		}
+		g.Add(func(ctx context.Context, resultCh chan<- checkgroup.Result) {
+			resultCh <- or(ctx, checks)
+		})
 
 		resultCh <- g.Result()
 	}
@@ -359,6 +341,9 @@ func (e *Engine) checkTupleToSubjectSet(
 			prevPage, nextPage string
 			tuples             []*relationTuple
 			err                error
+			qObj               uuid.UUID
+			ok                 bool
+			subSet             *relationtuple.SubjectSet
 		)
 		g := checkgroup.New(ctx)
 		for nextPage = "x"; nextPage != "" && !g.Done(); prevPage = nextPage {
@@ -379,7 +364,16 @@ func (e *Engine) checkTupleToSubjectSet(
 				e.d.Logger().
 					WithField("query tuple", t.String()).
 					Trace("check tuple to subjectSet(tuples)")
-				e.checkTupleToSubjectSetFrames(ctx, g, subjectSet, tuple, t.Subject, restDepth)
+
+				if subSet, ok = t.Subject.(*relationtuple.SubjectSet); ok {
+					qObj = subSet.Object
+				} else {
+					qObj = t.Subject.(*relationtuple.SubjectID).UniqueID()
+				}
+				checks := e.createTupleChildrenChecks(ctx, subjectSet, tuple, qObj, restDepth)
+				g.Add(func(ctx context.Context, resultCh chan<- checkgroup.Result) {
+					resultCh <- or(ctx, checks)
+				})
 			}
 		}
 
@@ -387,97 +381,52 @@ func (e *Engine) checkTupleToSubjectSet(
 	}
 }
 
-func (e *Engine) checkTupleToSubjectSetFrames(ctx context.Context, g checkgroup.Checkgroup, subjectSet *ast.TupleToSubjectSet, tuple *relationTuple, subj relationtuple.Subject, restDepth int) {
-	var (
-		qObj   uuid.UUID
-		ok     bool
-		subSet *relationtuple.SubjectSet
-	)
-	if subSet, ok = subj.(*relationtuple.SubjectSet); ok {
-		qObj = subSet.Object
-	} else {
-		qObj = subj.(*relationtuple.SubjectID).UniqueID()
-	}
+func (e *Engine) createTupleChildrenChecks(ctx context.Context, subjectSet *ast.TupleToSubjectSet, tuple *relationTuple, qObj uuid.UUID, restDepth int) (checks []checkgroup.CheckFunc) {
+	checks = make([]checkgroup.CheckFunc, 0)
 
 	for _, tc := range subjectSet.ComputedSubjectSetRelation.Children {
-		for _, frame := range subjectSet.Frames {
-			for _, frameUnions := range frame.Types {
-				// relation must exist in all type unions
-				switch {
-				case frameUnions.IsTypeIntersection():
-					checks := make([]checkgroup.CheckFunc, 0)
-					// relation must exist in at least one type intersection
-					for _, frameIntersections := range frameUnions.Types {
-						switch tc.(type) {
-						case *ast.ComputedSubjectSet:
-							checks = append(checks, e.checkIsAllowed(ctx, &relationTuple{
-								Namespace: frameIntersections.Namespace,
-								Object:    qObj,
-								Relation:  tc.(*ast.ComputedSubjectSet).Relation,
-								Subject:   tuple.Subject,
-							}, restDepth-1, false))
-						case *ast.TupleToSubjectSet:
-							checks = append(checks, e.checkTupleToSubjectSet(&relationTuple{
-								Namespace: frameIntersections.Namespace,
-								Object:    qObj,
-								Relation:  tc.(*ast.TupleToSubjectSet).Relation,
-								Subject:   tuple.Subject,
-							}, tc.(*ast.TupleToSubjectSet), restDepth-1))
-						case *ast.SubjectEqualsObject:
-							checks = append(checks, e.checkSubjectEqualsObject(ctx, &relationTuple{
-								Namespace: frameIntersections.Namespace,
-								Object:    qObj,
-								Subject:   tuple.Subject,
-							}, tc.(*ast.SubjectEqualsObject), restDepth-1))
-						case *ast.SubjectSetRewrite:
-							checks = append(checks, e.checkSubjectSetRewrite(ctx, &relationTuple{
-								Namespace: frameIntersections.Namespace,
-								Object:    qObj,
-								Relation:  subjectSet.Relation,
-								Subject:   tuple.Subject,
-							}, tc.(*ast.SubjectSetRewrite), restDepth-1))
-						}
-					}
-					g.Add(func(ctx context.Context, resultCh chan<- checkgroup.Result) {
-						resultCh <- or(ctx, checks)
-					})
-				case frameUnions.IsTypeSimple():
-					switch tc.(type) {
+		for _, traversedTypes := range subjectSet.TraversedTypes {
+			for _, typeUnion := range traversedTypes.Types {
+				var resolvedType = []ast.RelationType{typeUnion}
+				if typeUnion.IsTypeIntersection() {
+					resolvedType = typeUnion.Types
+				}
+				for _, combinedType := range resolvedType {
+					switch tcc := tc.(type) {
 					case *ast.ComputedSubjectSet:
-						r := &relationTuple{
-							Namespace: frameUnions.Namespace,
+						checks = append(checks, e.checkIsAllowed(ctx, &relationTuple{
+							Namespace: combinedType.Namespace,
 							Object:    qObj,
-							Relation:  tc.(*ast.ComputedSubjectSet).Relation,
+							Relation:  tcc.Relation,
 							Subject:   tuple.Subject,
-						}
-						g.Add(e.checkIsAllowed(ctx, r, restDepth-1, false))
+						}, restDepth-1, false))
 					case *ast.TupleToSubjectSet:
-						r := &relationTuple{
-							Namespace: frameUnions.Namespace,
+						checks = append(checks, e.checkTupleToSubjectSet(&relationTuple{
+							Namespace: combinedType.Namespace,
 							Object:    qObj,
-							Relation:  tc.(*ast.TupleToSubjectSet).Relation,
+							Relation:  tcc.Relation,
 							Subject:   tuple.Subject,
-						}
-						g.Add(e.checkTupleToSubjectSet(r, tc.(*ast.TupleToSubjectSet), restDepth-1))
+						}, tc.(*ast.TupleToSubjectSet), restDepth-1))
 					case *ast.SubjectEqualsObject:
-						r := &relationTuple{
-							Namespace: frameUnions.Namespace,
+						checks = append(checks, e.checkSubjectEqualsObject(ctx, &relationTuple{
+							Namespace: combinedType.Namespace,
 							Object:    qObj,
 							Subject:   tuple.Subject,
-						}
-						g.Add(e.checkSubjectEqualsObject(ctx, r, tc.(*ast.SubjectEqualsObject), restDepth-1))
+						}, tc.(*ast.SubjectEqualsObject), restDepth-1))
 					case *ast.SubjectSetRewrite:
-						r := &relationTuple{
-							Namespace: frameUnions.Namespace,
+						checks = append(checks, e.checkSubjectSetRewrite(ctx, &relationTuple{
+							Namespace: combinedType.Namespace,
 							Object:    qObj,
+							Relation:  subjectSet.Relation,
 							Subject:   tuple.Subject,
-						}
-						g.Add(e.checkSubjectSetRewrite(ctx, r, tc.(*ast.SubjectSetRewrite), restDepth-1))
+						}, tc.(*ast.SubjectSetRewrite), restDepth-1))
+					default:
+						panic("really can't happen")
 					}
-				default:
-					panic("really can't happen")
 				}
 			}
 		}
 	}
+
+	return checks
 }

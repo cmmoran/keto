@@ -14,8 +14,25 @@
         "operator": "or",
         "children": [
           {
+            "traversed_types": [
+              {
+                "namespace": "Resource",
+                "types": [
+                  {
+                    "namespace": "Resource"
+                  }
+                ]
+              }
+            ],
             "relation": "scope.relation",
-            "computed_subject_set_relation": "scope.action_1"
+            "computed_subject_set_relation": {
+              "operator": "or",
+              "children": [
+                {
+                  "relation": "scope.action_1"
+                }
+              ]
+            }
           }
         ]
       }
@@ -26,8 +43,25 @@
         "operator": "or",
         "children": [
           {
+            "traversed_types": [
+              {
+                "namespace": "Resource",
+                "types": [
+                  {
+                    "namespace": "Resource"
+                  }
+                ]
+              }
+            ],
             "relation": "scope.relation",
-            "computed_subject_set_relation": "scope.relation"
+            "computed_subject_set_relation": {
+              "operator": "or",
+              "children": [
+                {
+                  "relation": "scope.relation"
+                }
+              ]
+            }
           }
         ]
       }

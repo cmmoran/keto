@@ -114,6 +114,8 @@ func (t *Tree[NodeT]) String() string {
 
 	if t.Type == TreeNodeLeaf {
 		return fmt.Sprintf("∋ %s️", nodeLabel)
+	} else if t.Type == TreeNodeSubjectEqObject {
+		return fmt.Sprintf("≡ %s️", nodeLabel)
 	}
 
 	children := make([]string, len(t.Children))

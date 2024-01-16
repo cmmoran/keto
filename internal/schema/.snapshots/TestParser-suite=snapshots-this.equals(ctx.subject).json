@@ -22,7 +22,9 @@
       "rewrite": {
         "operator": "or",
         "children": [
-          {},
+          {
+            "types": null
+          },
           {
             "relation": "admin_token"
           }

@@ -4,7 +4,9 @@
 package schema
 
 import (
+	"fmt"
 	"github.com/ory/keto/internal/namespace/ast"
+	"strings"
 )
 
 type (
@@ -24,6 +26,15 @@ func (ns namespaceQuery) namespaces() []string {
 
 func (p *parser) query() namespaceQuery {
 	return p.namespaces
+}
+
+func (rs relationQuery) String() string {
+	results := make([]string, 0)
+	for _, r := range rs {
+		results = append(results, r.String())
+	}
+
+	return fmt.Sprintf("[%s]", strings.Join(results, ","))
 }
 
 func (ns namespaceQuery) find(name string) (*namespace, bool) {
@@ -95,7 +106,7 @@ func checkCurrentNamespaceHasRelation(current *namespace, relation item) typeChe
 	namespace := current.Name
 	return func(p *parser) {
 		if n, ok := namespaceQuery(p.namespaces).find(namespace); ok {
-			if _, ok := relationQuery(n.Relations).find(relation.Val); ok {
+			if _, rok := relationQuery(n.Relations).find(relation.Val); rok {
 				return
 			}
 			p.addErr(relation,
@@ -108,43 +119,48 @@ func checkCurrentNamespaceHasRelation(current *namespace, relation item) typeChe
 	}
 }
 
-// checkArbitraryNamespaceHasRelation checks that the given relation exists in the
+// checkIdentifierTypesHaveRelation checks that the given relation exists in the
 // given namespaces.
-func checkNamespacesHavesRelation(namespacePtr *namespace, identifiers []ast.Relation, relation item) typeCheck {
-	if len(identifiers) == 0 {
-		identifiers = namespacePtr.Relations
-	}
+func checkIdentifierTypesHaveRelation(namespacePtr *namespace, identifiers []ast.TraversedType, relation item) typeCheck {
+	currentNs := namespacePtr.Name
 
 	return func(p *parser) {
+		if len(identifiers) == 0 {
+			if rel, ok := namespaceQuery(p.namespaces).findRelation(currentNs, relation.Val); ok {
+				identifiers = []ast.TraversedType{{
+					Namespace: currentNs,
+					Types:     rel.Types,
+				}}
+			}
+		}
 		for _, ns := range identifiers {
-			if len(ns.Types) == 1 {
-				// Simple type
-			} else {
-				// Union or intersection
-				for _, typ := range ns.Types {
-					if !typ.Find(relation.Val) {
-						p.addErr(relation,
-							"%q (%q) %q did not declare relation %q",
-							ns.Kind(), ns.Types, ns.Name, relation.Val)
-					}
-					if len(typ.Types) == 0 {
-						if typ.Relation == relation.Val {
-							continue
-						}
-						p.addErr(relation,
-							"union %q did not declare relation %q",
-							ns.Name, relation.Val)
-					} else {
-						for _, styp := range typ.Types {
-							if styp.Relation == relation.Val {
-								continue
-							}
-							p.addErr(relation,
-								"intersection %q did not declare relation %q",
-								typ.Types, relation.Val)
+			// unions all
+			for _, nst := range ns.Types {
+				if nst.IsTypeIntersection() {
+					// for intersection types, we only need one member of the intersection to have the relation
+					found := false
+					for _, nstt := range nst.Types {
+						if _, ok := namespaceQuery(p.namespaces).findRelation(nstt.Namespace, relation.Val); ok {
+							found = true
 						}
 					}
-					return
+					if !found {
+						p.addErr(relation,
+							"From [%q], %q did not properly declare relation %q",
+							ns.Namespace, ns.Types.String(), relation.Val)
+					}
+				} else if len(nst.Namespace) > 0 {
+					// for union types, we need all members of the union to have the relation
+					if _, ok := namespaceQuery(p.namespaces).findRelation(nst.Namespace, relation.Val); !ok {
+						p.addErr(relation,
+							"From %q, %q did not properly declare relation %q",
+							ns.Namespace, ns.Types.String(), relation.Val)
+						//p.addErr(relation,
+						//	"%q (%q) did not declare relation %q",
+						//	nst.Namespace, ns.Types, relation.Val)
+					}
+				} else {
+					panic("how did we get here?")
 				}
 			}
 		}
