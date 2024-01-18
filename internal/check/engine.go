@@ -148,6 +148,23 @@ func (e *Engine) checkExpandSubject(r *relationTuple, restDepth int) checkgroup.
 				Debug("too many results, truncating")
 			results = results[:maxWidth-1]
 		}
+		if len(results) == 0 {
+			// For situations where: a:b#c@d succeed but a:b#c@*:d fail
+			if subj, ok := r.Subject.(*relationtuple.SubjectSet); ok {
+				if subj.Relation == "" || subj.Relation == "..." {
+					subjectId := &relationtuple.SubjectID{ID: subj.Object}
+					innerCtx, visited = graph.CheckAndAddVisited(innerCtx, subjectId)
+					if !visited {
+						g.Add(e.checkIsAllowed(innerCtx, &relationTuple{
+							Namespace: r.Namespace,
+							Object:    r.Object,
+							Relation:  r.Relation,
+							Subject:   subjectId,
+						}, restDepth, false))
+					}
+				}
+			}
+		}
 		for _, result := range results {
 			sub := &relationtuple.SubjectSet{
 				Namespace: result.To.Namespace,
