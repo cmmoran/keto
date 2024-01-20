@@ -69,12 +69,6 @@ func (p *parser) pushFrame(relation item) {
 			}
 		}
 	}
-	if len(current.traversedTypes) > 1 {
-		fmt.Printf("MULTI: %v\n", current.relation)
-		for _, ttype := range current.traversedTypes {
-			fmt.Printf("MULTI: %v\n", ttype.Types)
-		}
-	}
 	if len(p.traverseStack) > 1 {
 		p.traverseStack = append(p.traverseStack[:1], p.traverseStack[0:]...)
 		p.traverseStack[0] = current
