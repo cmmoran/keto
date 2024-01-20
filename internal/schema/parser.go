@@ -519,6 +519,7 @@ func (p *parser) parsePermissionExpressions(root *ast.SubjectSetRewrite, finalTo
 			root = addChild(root, child)
 			expectExpression = false
 
+		// capture this. | {variable_name}. within the body of a permits
 		case slices.Contains([]itemType{itemKeywordThis, itemIdentifier, itemStringLiteral}, itam.Typ), ctx.Typ == 0:
 			p.matchIf(or(itemKeywordThis, itemIdentifier, itemStringLiteral), &ctx)
 
