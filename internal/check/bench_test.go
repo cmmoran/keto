@@ -75,8 +75,17 @@ func BenchmarkCheckEngine(b *testing.B) {
 							&ast.ComputedSubjectSet{
 								Relation: "editor"},
 							&ast.TupleToSubjectSet{
-								Relation:                   "parent",
-								ComputedSubjectSetRelation: "viewer"}}}},
+								TraversedTypes: []ast.TraversedType{
+									{
+										Types: []ast.RelationType{{Namespace: "deep"}},
+									},
+								},
+								Relation: "parent",
+								ComputedSubjectSetRelation: &ast.SubjectSetRewrite{
+									Children: ast.Children{
+										&ast.ComputedSubjectSet{
+											Relation: "viewer",
+										}}}}}}},
 			}},
 	}
 
@@ -109,7 +118,7 @@ func BenchmarkCheckEngine(b *testing.B) {
 					res := e.CheckRelationTuple(ctx, rt, 2*depth)
 					assert.NoError(b, res.Err)
 					if res.Membership != checkgroup.IsMember {
-						b.Error("user should be able to view 'deep_file'")
+						b.Error(fmt.Sprintf("user %s should be able to view 'deep_file'", rt))
 					}
 				}
 			})
