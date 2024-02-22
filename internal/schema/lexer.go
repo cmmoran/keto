@@ -26,13 +26,14 @@ type (
 
 	// lexer holds the state of the scanner.
 	lexer struct {
-		name  string    // the name of the input; used only for error reports.
-		input string    // the string being scanned.
-		state stateFn   // the next lexing function to enter
-		pos   int       // current position in the input.
-		start int       // start position of this item.
-		width int       // width of last rune read from input.
-		items chan item // channel of scanned items.
+		name   string    // the name of the input; used only for error reports.
+		input  string    // the string being scanned.
+		state  stateFn   // the next lexing function to enter
+		pos    int       // current position in the input.
+		start  int       // start position of this item.
+		width  int       // width of last rune read from input.
+		items  chan item // channel of scanned items.
+		marked int64     // current marked position
 	}
 )
 
@@ -61,14 +62,16 @@ const (
 	itemOperatorOr     // "||"
 	itemOperatorNot    // "!"
 	itemOperatorAssign // "="
+	itemOperatorEquals // "=="
 	itemOperatorArrow  // "=>"
 	itemOperatorDot    // "."
 	itemOperatorColon  // ":"
 	itemOperatorComma  // ","
 
 	// misc characters
-	itemSemicolon // ";"
-	itemTypeUnion // "|"
+	itemSemicolon        // ";"
+	itemTypeUnion        // "|"
+	itemTypeIntersection // "&"
 
 	// brackets
 	itemParenLeft    // "("
@@ -125,6 +128,30 @@ func (l *lexer) next() (r rune) {
 	r, l.width = utf8.DecodeRuneInString(l.input[l.pos:])
 	l.pos += l.width
 	return r
+}
+
+func (l *lexer) mark(lookahead *item) int64 {
+	pos := l.pos
+	width := l.width
+	if lookahead != nil {
+		pos = lookahead.Start
+		width = lookahead.End - pos
+	}
+	l.marked = int64((pos & 0x7fffffff) | (width&0x7fffffff)<<32)
+
+	return l.marked
+}
+
+func (l *lexer) restoreMark() {
+	w := int((l.marked >> 32) & 0x7fffffff)
+	if w > 0 {
+		l.pos = int(l.marked & 0x7fffffff)
+		l.width = w
+	}
+}
+
+func (l *lexer) resetMark() {
+	l.marked = int64(0)
 }
 
 // peek returns but does not consume the next rune in the input.
@@ -232,10 +259,12 @@ var oneRuneTokens = map[rune]itemType{
 	',': itemOperatorComma,
 	';': itemSemicolon,
 	'|': itemTypeUnion,
+	'&': itemTypeIntersection,
 	'!': itemOperatorNot,
 }
 
 var multiRuneTokens = map[string]itemType{
+	"==": itemOperatorEquals,
 	"=>": itemOperatorArrow,
 	"||": itemOperatorOr,
 	"&&": itemOperatorAnd,
@@ -337,4 +366,11 @@ loop:
 	l.ignore()
 
 	return lexCode
+}
+
+func (i item) Reset() {
+	(&i).Val = ""
+	(&i).End = 0
+	(&i).Typ = 0
+	(&i).Start = 0
 }

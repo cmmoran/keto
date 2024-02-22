@@ -186,6 +186,7 @@ const (
 	TreeNodeExclusion          TreeNodeType = "exclusion"
 	TreeNodeIntersection       TreeNodeType = "intersection"
 	TreeNodeLeaf               TreeNodeType = "leaf"
+	TreeNodeSubjectEqObject    TreeNodeType = "subject_equals_object"
 	TreeNodeTupleToSubjectSet  TreeNodeType = "tuple_to_subject_set"
 	TreeNodeComputedSubjectSet TreeNodeType = "computed_subject_set"
 	TreeNodeNot                TreeNodeType = "not"
@@ -198,7 +199,7 @@ func (t *TreeNodeType) UnmarshalJSON(v []byte) error {
 		return err
 	}
 	switch nt := TreeNodeType(s); nt {
-	case TreeNodeUnion, TreeNodeExclusion, TreeNodeIntersection, TreeNodeLeaf, TreeNodeTupleToSubjectSet, TreeNodeComputedSubjectSet, TreeNodeNot, TreeNodeUnspecified:
+	case TreeNodeUnion, TreeNodeExclusion, TreeNodeIntersection, TreeNodeLeaf, TreeNodeTupleToSubjectSet, TreeNodeComputedSubjectSet, TreeNodeNot, TreeNodeUnspecified, TreeNodeSubjectEqObject:
 		*t = nt
 	default:
 		return ErrUnknownNodeType

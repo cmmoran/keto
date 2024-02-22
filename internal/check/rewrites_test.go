@@ -26,6 +26,8 @@ var namespaces = []*namespace.Namespace{
 			{
 				Name: "owner"},
 			{
+				Name: "parent"},
+			{
 				Name: "editor",
 				SubjectSetRewrite: &ast.SubjectSetRewrite{
 					Children: ast.Children{&ast.ComputedSubjectSet{
@@ -37,10 +39,18 @@ var namespaces = []*namespace.Namespace{
 						&ast.ComputedSubjectSet{
 							Relation: "editor"},
 						&ast.TupleToSubjectSet{
-							Relation:                   "parent",
-							ComputedSubjectSetRelation: "viewer"}}}},
+							TraversedTypes: []ast.TraversedType{{
+								Types: []ast.RelationType{{
+									Namespace: "doc"}},
+							}},
+							Relation: "parent",
+							ComputedSubjectSetRelation: &ast.SubjectSetRewrite{
+								Children: ast.Children{
+									&ast.ComputedSubjectSet{
+										Relation: "viewer",
+									}}}}}}},
 		}},
-	{Name: "users"},
+	{Name: "user"},
 	{Name: "group",
 		Relations: []ast.Relation{{Name: "member"}},
 	},
@@ -49,32 +59,74 @@ var namespaces = []*namespace.Namespace{
 	},
 	{Name: "resource",
 		Relations: []ast.Relation{
+			{Name: "owners"},
 			{Name: "level"},
 			{Name: "viewer",
 				SubjectSetRewrite: &ast.SubjectSetRewrite{
 					Children: ast.Children{
-						&ast.TupleToSubjectSet{Relation: "owner", ComputedSubjectSetRelation: "member"}}}},
+						&ast.TupleToSubjectSet{
+							TraversedTypes: []ast.TraversedType{{
+								Types: []ast.RelationType{{
+									Namespace: "doc",
+								}},
+							}},
+							Relation: "owner",
+							ComputedSubjectSetRelation: &ast.SubjectSetRewrite{
+								Children: ast.Children{
+									&ast.ComputedSubjectSet{
+										Relation: "member",
+									}}}}}}},
 			{Name: "owner",
 				SubjectSetRewrite: &ast.SubjectSetRewrite{
 					Children: ast.Children{
-						&ast.TupleToSubjectSet{Relation: "owner", ComputedSubjectSetRelation: "member"}}}},
+						&ast.SubjectEqualsObject{},
+						&ast.TupleToSubjectSet{
+							TraversedTypes: []ast.TraversedType{{
+								Types: []ast.RelationType{{
+									Namespace: "group",
+								}},
+							}},
+							Relation: "owners",
+							ComputedSubjectSetRelation: &ast.SubjectSetRewrite{
+								Children: ast.Children{
+									&ast.ComputedSubjectSet{
+										Relation: "member",
+									}}}}}}},
 			{Name: "read",
 				SubjectSetRewrite: &ast.SubjectSetRewrite{
 					Children: ast.Children{
+						&ast.SubjectEqualsObject{},
 						&ast.ComputedSubjectSet{Relation: "viewer"},
 						&ast.ComputedSubjectSet{Relation: "owner"}}}},
 			{Name: "update",
 				SubjectSetRewrite: &ast.SubjectSetRewrite{
 					Children: ast.Children{
-						&ast.ComputedSubjectSet{Relation: "owner"}}}},
+						&ast.SubjectEqualsObject{},
+						&ast.ComputedSubjectSet{Relation: "owners"}}}},
 			{Name: "delete",
 				SubjectSetRewrite: &ast.SubjectSetRewrite{
-					Operation: ast.OperatorAnd,
+					Operation: ast.OperatorOr,
 					Children: ast.Children{
-						&ast.ComputedSubjectSet{Relation: "owner"},
-						&ast.TupleToSubjectSet{
-							Relation:                   "level",
-							ComputedSubjectSetRelation: "member"}}}},
+						&ast.SubjectSetRewrite{
+							Operation: ast.OperatorAnd,
+							Children: ast.Children{
+								&ast.ComputedSubjectSet{Relation: "owner"},
+								&ast.TupleToSubjectSet{
+									TraversedTypes: []ast.TraversedType{{
+										Types: []ast.RelationType{{
+											Namespace: "level",
+										}},
+									}},
+									Relation: "level",
+									ComputedSubjectSetRelation: &ast.SubjectSetRewrite{
+										Children: ast.Children{
+											&ast.ComputedSubjectSet{
+												Relation: "member",
+											}}}},
+							},
+						},
+						&ast.SubjectEqualsObject{},
+					}}},
 		}},
 	{Name: "acl",
 		Relations: []ast.Relation{
@@ -108,10 +160,10 @@ func TestUsersetRewrites(t *testing.T) {
 
 	insertFixtures(t, reg.RelationTupleManager(), []string{
 		"doc:document#owner@plain_user",       // user owns doc
-		"doc:document#owner@users:user",       // user owns doc
+		"doc:document#owner@user:user",        // user owns doc
 		"doc:doc_in_folder#parent@doc:folder", // doc_in_folder is in folder
 		"doc:folder#owner@plain_user",         // user owns folder
-		"doc:folder#owner@users:user",         // user owns folder
+		"doc:folder#owner@user:user",          // user owns folder
 
 		// Folder hierarchy folder_a -> folder_b -> folder_c -> file
 		// and folder_a is owned by user. Then user should have access to file.
@@ -123,9 +175,9 @@ func TestUsersetRewrites(t *testing.T) {
 		"group:editors#member@mark",
 		"level:superadmin#member@mark",
 		"level:superadmin#member@sandy",
-		"resource:topsecret#owner@group:editors#",
+		"resource:topsecret#owners@group:editors#",
 		"resource:topsecret#level@level:superadmin#",
-		"resource:topsecret#owner@mike",
+		"resource:topsecret#owners@mike",
 
 		"acl:document#allow@alice",
 		"acl:document#allow@bob",
@@ -139,13 +191,13 @@ func TestUsersetRewrites(t *testing.T) {
 		expectedPaths []path
 	}{{
 		// direct
-		query: "doc:document#owner@users:user",
+		query: "doc:document#owner@user:user",
 		expected: checkgroup.Result{
 			Membership: checkgroup.IsMember,
 		},
 	}, {
 		// userset rewrite
-		query: "doc:document#editor@users:user",
+		query: "doc:document#editor@user:user",
 		expected: checkgroup.Result{
 			Membership: checkgroup.IsMember,
 		},
@@ -155,17 +207,17 @@ func TestUsersetRewrites(t *testing.T) {
 		expected: checkgroup.ResultIsMember,
 	}, {
 		// transitive userset rewrite
-		query:    "doc:document#viewer@users:user",
+		query:    "doc:document#viewer@user:user",
 		expected: checkgroup.ResultIsMember,
 	}, {
 		query:    "doc:document#editor@nobody",
 		expected: checkgroup.ResultNotMember,
 	}, {
-		query:    "doc:folder#viewer@users:user",
+		query:    "doc:folder#viewer@user:user",
 		expected: checkgroup.ResultIsMember,
 	}, {
 		// tuple to userset
-		query:    "doc:doc_in_folder#viewer@users:user",
+		query:    "doc:doc_in_folder#viewer@user:user",
 		expected: checkgroup.ResultIsMember,
 	}, {
 		// tuple to userset
@@ -192,9 +244,18 @@ func TestUsersetRewrites(t *testing.T) {
 		query:    "resource:topsecret#delete@mark",
 		expected: checkgroup.ResultIsMember, // mark is both editor and has correct level
 		expectedPaths: []path{
-			{"*", "resource:topsecret#delete@mark", "level:superadmin#member@mark"},
-			{"*", "resource:topsecret#delete@mark", "resource:topsecret#owner@mark", "group:editors#member@mark"},
+			{"*", "*", "resource:topsecret#delete@mark", "level:superadmin#member@mark"},
+			{"*", "*", "resource:topsecret#delete@mark", "resource:topsecret#owner@mark", "group:editors#member@mark"},
 		},
+	}, {
+		query:    "resource:topsecret#delete@topsecret",
+		expected: checkgroup.ResultIsMember, // topsecret may delete topsecret
+	}, {
+		query:    "resource:topsecret#update@topsecret",
+		expected: checkgroup.ResultIsMember, // topsecret may update topsecret
+	}, {
+		query:    "resource:topsecret#read@topsecret",
+		expected: checkgroup.ResultIsMember, // topsecret may read topsecret
 	}, {
 		query:    "resource:topsecret#update@mike",
 		expected: checkgroup.ResultIsMember, // mike owns the resource

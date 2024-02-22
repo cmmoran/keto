@@ -42,20 +42,92 @@
         "operator": "or",
         "children": [
           {
+            "traversed_types": [
+              {
+                "namespace": "Resource",
+                "types": [
+                  {
+                    "namespace": "Role",
+                    "relation": "member"
+                  }
+                ]
+              }
+            ],
             "relation": "admins",
-            "computed_subject_set_relation": "member"
+            "computed_subject_set_relation": {
+              "operator": "or",
+              "children": [
+                {
+                  "relation": "member"
+                }
+              ]
+            }
           },
           {
+            "traversed_types": [
+              {
+                "namespace": "Resource",
+                "types": [
+                  {
+                    "namespace": "Role",
+                    "relation": "member"
+                  }
+                ]
+              }
+            ],
             "relation": "annotators",
-            "computed_subject_set_relation": "member"
+            "computed_subject_set_relation": {
+              "operator": "or",
+              "children": [
+                {
+                  "relation": "member"
+                }
+              ]
+            }
           },
           {
+            "traversed_types": [
+              {
+                "namespace": "Resource",
+                "types": [
+                  {
+                    "namespace": "Role",
+                    "relation": "member"
+                  }
+                ]
+              }
+            ],
             "relation": "medicalAnnotators",
-            "computed_subject_set_relation": "member"
+            "computed_subject_set_relation": {
+              "operator": "or",
+              "children": [
+                {
+                  "relation": "member"
+                }
+              ]
+            }
           },
           {
+            "traversed_types": [
+              {
+                "namespace": "Resource",
+                "types": [
+                  {
+                    "namespace": "Role",
+                    "relation": "member"
+                  }
+                ]
+              }
+            ],
             "relation": "supervisors",
-            "computed_subject_set_relation": "member"
+            "computed_subject_set_relation": {
+              "operator": "or",
+              "children": [
+                {
+                  "relation": "member"
+                }
+              ]
+            }
           }
         ]
       }
@@ -77,20 +149,92 @@
         "operator": "or",
         "children": [
           {
+            "traversed_types": [
+              {
+                "namespace": "Resource",
+                "types": [
+                  {
+                    "namespace": "Role",
+                    "relation": "member"
+                  }
+                ]
+              }
+            ],
             "relation": "admins",
-            "computed_subject_set_relation": "member"
+            "computed_subject_set_relation": {
+              "operator": "or",
+              "children": [
+                {
+                  "relation": "member"
+                }
+              ]
+            }
           },
           {
+            "traversed_types": [
+              {
+                "namespace": "Resource",
+                "types": [
+                  {
+                    "namespace": "Role",
+                    "relation": "member"
+                  }
+                ]
+              }
+            ],
             "relation": "annotators",
-            "computed_subject_set_relation": "member"
+            "computed_subject_set_relation": {
+              "operator": "or",
+              "children": [
+                {
+                  "relation": "member"
+                }
+              ]
+            }
           },
           {
+            "traversed_types": [
+              {
+                "namespace": "Resource",
+                "types": [
+                  {
+                    "namespace": "Role",
+                    "relation": "member"
+                  }
+                ]
+              }
+            ],
             "relation": "medicalAnnotators",
-            "computed_subject_set_relation": "member"
+            "computed_subject_set_relation": {
+              "operator": "or",
+              "children": [
+                {
+                  "relation": "member"
+                }
+              ]
+            }
           },
           {
+            "traversed_types": [
+              {
+                "namespace": "Resource",
+                "types": [
+                  {
+                    "namespace": "Role",
+                    "relation": "member"
+                  }
+                ]
+              }
+            ],
             "relation": "supervisors",
-            "computed_subject_set_relation": "member"
+            "computed_subject_set_relation": {
+              "operator": "or",
+              "children": [
+                {
+                  "relation": "member"
+                }
+              ]
+            }
           }
         ]
       }
@@ -101,16 +245,70 @@
         "operator": "or",
         "children": [
           {
+            "traversed_types": [
+              {
+                "namespace": "Resource",
+                "types": [
+                  {
+                    "namespace": "Role",
+                    "relation": "member"
+                  }
+                ]
+              }
+            ],
             "relation": "admins",
-            "computed_subject_set_relation": "member"
+            "computed_subject_set_relation": {
+              "operator": "or",
+              "children": [
+                {
+                  "relation": "member"
+                }
+              ]
+            }
           },
           {
+            "traversed_types": [
+              {
+                "namespace": "Resource",
+                "types": [
+                  {
+                    "namespace": "Role",
+                    "relation": "member"
+                  }
+                ]
+              }
+            ],
             "relation": "annotators",
-            "computed_subject_set_relation": "member"
+            "computed_subject_set_relation": {
+              "operator": "or",
+              "children": [
+                {
+                  "relation": "member"
+                }
+              ]
+            }
           },
           {
+            "traversed_types": [
+              {
+                "namespace": "Resource",
+                "types": [
+                  {
+                    "namespace": "Role",
+                    "relation": "member"
+                  }
+                ]
+              }
+            ],
             "relation": "supervisors",
-            "computed_subject_set_relation": "member"
+            "computed_subject_set_relation": {
+              "operator": "or",
+              "children": [
+                {
+                  "relation": "member"
+                }
+              ]
+            }
           }
         ]
       }
@@ -121,12 +319,48 @@
         "operator": "or",
         "children": [
           {
+            "traversed_types": [
+              {
+                "namespace": "Resource",
+                "types": [
+                  {
+                    "namespace": "Role",
+                    "relation": "member"
+                  }
+                ]
+              }
+            ],
             "relation": "admins",
-            "computed_subject_set_relation": "member"
+            "computed_subject_set_relation": {
+              "operator": "or",
+              "children": [
+                {
+                  "relation": "member"
+                }
+              ]
+            }
           },
           {
+            "traversed_types": [
+              {
+                "namespace": "Resource",
+                "types": [
+                  {
+                    "namespace": "Role",
+                    "relation": "member"
+                  }
+                ]
+              }
+            ],
             "relation": "supervisors",
-            "computed_subject_set_relation": "member"
+            "computed_subject_set_relation": {
+              "operator": "or",
+              "children": [
+                {
+                  "relation": "member"
+                }
+              ]
+            }
           }
         ]
       }
@@ -137,12 +371,48 @@
         "operator": "or",
         "children": [
           {
+            "traversed_types": [
+              {
+                "namespace": "Resource",
+                "types": [
+                  {
+                    "namespace": "Role",
+                    "relation": "member"
+                  }
+                ]
+              }
+            ],
             "relation": "admins",
-            "computed_subject_set_relation": "member"
+            "computed_subject_set_relation": {
+              "operator": "or",
+              "children": [
+                {
+                  "relation": "member"
+                }
+              ]
+            }
           },
           {
+            "traversed_types": [
+              {
+                "namespace": "Resource",
+                "types": [
+                  {
+                    "namespace": "Role",
+                    "relation": "member"
+                  }
+                ]
+              }
+            ],
             "relation": "supervisors",
-            "computed_subject_set_relation": "member"
+            "computed_subject_set_relation": {
+              "operator": "or",
+              "children": [
+                {
+                  "relation": "member"
+                }
+              ]
+            }
           }
         ]
       }

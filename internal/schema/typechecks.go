@@ -3,7 +3,12 @@
 
 package schema
 
-import "github.com/ory/keto/internal/namespace/ast"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/ory/keto/internal/namespace/ast"
+)
 
 type (
 	namespaceQuery []namespace
@@ -11,8 +16,26 @@ type (
 	typeCheck      func(p *parser)
 )
 
+func (ns namespaceQuery) namespaces() []string {
+	res := make([]string, 0)
+	for _, t := range ns {
+		res = append(res, t.Name)
+	}
+
+	return res
+}
+
 func (p *parser) query() namespaceQuery {
 	return p.namespaces
+}
+
+func (rs relationQuery) String() string {
+	results := make([]string, 0)
+	for _, r := range rs {
+		results = append(results, r.String())
+	}
+
+	return fmt.Sprintf("[%s]", strings.Join(results, ","))
 }
 
 func (ns namespaceQuery) find(name string) (*namespace, bool) {
@@ -84,22 +107,78 @@ func checkCurrentNamespaceHasRelation(current *namespace, relation item) typeChe
 	namespace := current.Name
 	return func(p *parser) {
 		if n, ok := namespaceQuery(p.namespaces).find(namespace); ok {
-			if _, ok := relationQuery(n.Relations).find(relation.Val); ok {
+			if _, rok := relationQuery(n.Relations).find(relation.Val); rok {
 				return
 			}
 			p.addErr(relation,
 				"namespace %q did not declare relation %q",
 				namespace, relation.Val)
 			return
+
 		}
 		p.addErr(relation, "namespace %q was not declared", namespace)
 	}
 }
 
-func checkAllRelationsTypesHaveRelation(current *namespace, relationType item, relation string) typeCheck {
-	namespace := current.Name
+// checkIdentifierTypesHaveRelation checks that the given relation exists in the
+// given namespaces.
+func checkIdentifierTypesHaveRelation(namespacePtr *namespace, identifiers []ast.TraversedType, relation item) typeCheck {
+	currentNs := namespacePtr.Name
+
 	return func(p *parser) {
-		recursiveCheckAllRelationsTypesHaveRelation(p, relationType, namespace, relationType.Val, relation, tupleToSubjectSetTypeCheckMaxDepth)
+		if len(identifiers) == 0 {
+			if rel, ok := namespaceQuery(p.namespaces).findRelation(currentNs, relation.Val); ok {
+				identifiers = []ast.TraversedType{{
+					Namespace: currentNs,
+					Types:     rel.Types,
+				}}
+			}
+		}
+		for _, ns := range identifiers {
+			// unions all
+			for _, nst := range ns.Types {
+				if nst.IsTypeIntersection() {
+					// for intersection types, we only need one member of the intersection to have the relation
+					found := false
+					for _, nstt := range nst.Types {
+						if _, ok := namespaceQuery(p.namespaces).findRelation(nstt.Namespace, relation.Val); ok {
+							found = true
+						}
+					}
+					if !found {
+						p.addErr(relation,
+							"From [%q], %q did not properly declare relation %q",
+							ns.Namespace, ns.Types.String(), relation.Val)
+					}
+				} else if len(nst.Namespace) > 0 {
+					// for union types, we need all members of the union to have the relation
+					if _, ok := namespaceQuery(p.namespaces).findRelation(nst.Namespace, relation.Val); !ok {
+						p.addErr(relation,
+							"From %q, %q did not properly declare relation %q",
+							ns.Namespace, ns.Types.String(), relation.Val)
+						//p.addErr(relation,
+						//	"%q (%q) did not declare relation %q",
+						//	nst.Namespace, ns.Types, relation.Val)
+					}
+				} else {
+					panic("how did we get here?")
+				}
+			}
+		}
+	}
+}
+
+func checkNamespacesHaveRelationTypeAndRelation(namespacePtr *namespace, identifiers []ast.Relation, relationType item, relation string) typeCheck {
+	if len(identifiers) == 0 {
+		identifiers = namespacePtr.Relations
+	}
+
+	return func(p *parser) {
+		for _, ns := range identifiers {
+			for _, typ := range ns.Types {
+				recursiveCheckSomeRelationsTypesHaveRelation(p, relationType, typ, relation, tupleToSubjectSetTypeCheckMaxDepth)
+			}
+		}
 	}
 }
 
@@ -114,6 +193,26 @@ func recursiveCheckAllRelationsTypesHaveRelation(p *parser, item item, namespace
 			relationType, namespace)
 		return
 	}
+	for _, t := range r.Types {
+		if t.Relation == "" {
+			if _, ok := p.query().findRelation(t.Namespace, relation); !ok {
+				p.addErr(item, "relation %q was not declared in namespace %q",
+					relation, t.Namespace)
+			}
+		} else {
+			// Type is a subject set, we need to recursively check if the type has
+			// the required relation.
+			recursiveCheckAllRelationsTypesHaveRelation(
+				p, item, t.Namespace, t.Relation, relation, depth-1)
+		}
+	}
+}
+func recursiveCheckSomeRelationsTypesHaveRelation(p *parser, item item, r ast.RelationType, relation string, depth int) {
+	if depth < 0 {
+		p.addErr(item, "could not typecheck deeply nested SubjectSet further")
+		return
+	}
+
 	for _, t := range r.Types {
 		if t.Relation == "" {
 			if _, ok := p.query().findRelation(t.Namespace, relation); !ok {
